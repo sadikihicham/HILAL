@@ -27,6 +27,17 @@ function Gauge({ value, color }: { value: number; color: string }) {
   );
 }
 
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null;
+  return (
+    <View style={s.spark}>
+      {values.map((v, i) => (
+        <View key={i} style={[s.sparkBar, { height: `${Math.max(6, Math.min(100, v * 100))}%`, backgroundColor: color }]} />
+      ))}
+    </View>
+  );
+}
+
 function MetricRow({ icon, label, value, frac, color }: {
   icon: string; label: string; value: string; frac: number; color: string;
 }) {
@@ -102,6 +113,9 @@ function Monitor() {
         {m.battery && !!batteryState(m.battery.state) && (
           <Text style={s.batteryState}>{batteryState(m.battery.state)}</Text>
         )}
+        {m.batteryHistory.length > 1 && (
+          <Sparkline values={m.batteryHistory} color={loadColor(m.battery?.level ?? 1, true)} />
+        )}
 
         {m.storage && (
           <MetricRow icon="💾" label="Stockage"
@@ -138,7 +152,9 @@ const s = StyleSheet.create({
   metricValue: { fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
   track: { height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
   fill: { height: 10, borderRadius: 5 },
-  batteryState: { color: '#7f9b90', fontSize: 13, marginTop: -10, marginBottom: 18 },
+  batteryState: { color: '#7f9b90', fontSize: 13, marginTop: -10, marginBottom: 10 },
+  spark: { flexDirection: 'row', alignItems: 'flex-end', height: 34, gap: 2, marginBottom: 18 },
+  sparkBar: { flex: 1, borderRadius: 1, opacity: 0.65, minHeight: 2 },
   card: { backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: 6, marginTop: 8, borderWidth: 1, borderColor: 'rgba(201,162,75,0.18)' },
   info: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.06)' },
   infoLabel: { color: '#9bb3a8', fontSize: 14 },

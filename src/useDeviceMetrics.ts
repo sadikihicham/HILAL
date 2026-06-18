@@ -11,11 +11,14 @@ export type Metrics = {
   network: { type: string; isConnected: boolean; ip: string | null } | null;
   ramTotal: number | null;
   device: { model: string; os: string };
+  batteryHistory: number[];   // niveaux 0..1, du plus ancien au plus récent
 };
+
+const HISTORY_MAX = 40;
 
 const EMPTY: Metrics = {
   battery: null, storage: null, network: null, ramTotal: null,
-  device: { model: '—', os: '—' },
+  device: { model: '—', os: '—' }, batteryHistory: [],
 };
 
 /// Échantillonne les capteurs locaux (aucun accès réseau sortant). Renvoie les
@@ -40,7 +43,7 @@ export function useDeviceMetrics(intervalMs = 3000): { metrics: Metrics; refresh
       let ip: string | null = null;
       try { ip = await Network.getIpAddressAsync(); } catch { /* indisponible */ }
       if (!aliveRef.current) return;
-      setMetrics({
+      setMetrics((prev) => ({
         battery: { level, state, lowPower },
         storage: { free, total },
         network: { type: String(net.type ?? 'UNKNOWN'), isConnected: !!net.isConnected, ip },
@@ -49,7 +52,8 @@ export function useDeviceMetrics(intervalMs = 3000): { metrics: Metrics; refresh
           model: Device.modelName ?? Device.deviceName ?? '—',
           os: `${Device.osName ?? ''} ${Device.osVersion ?? ''}`.trim() || '—',
         },
-      });
+        batteryHistory: [...prev.batteryHistory, level].slice(-HISTORY_MAX),
+      }));
     } catch { /* lecture impossible ce tick */ }
   }, []);
 
