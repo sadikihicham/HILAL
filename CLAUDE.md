@@ -40,8 +40,10 @@ eas build --profile development|preview|production -p ios|android
 Profils dans `eas.json` ; projet lié via `extra.eas.projectId` (`app.json`).
 
 ⚠️ **CI** : `.github/workflows/eas-update.yml` publie `eas update --branch preview` **à chaque push
-sur `master`** (secret GitHub `EXPO_TOKEN` requis). Donc **un push sur master = une OTA preview en
-production** — en tenir compte avant de pousser.
+sur `master`** (secret GitHub `EXPO_TOKEN` requis), gardé par la porte `tsc`. Donc **un push sur
+master = une OTA sur le canal preview** — en tenir compte avant de pousser. Le canal **`production`
+n'est mis à jour que manuellement** (`eas update --branch production`) : les pushes de routine ne
+touchent jamais les utilisateurs prod. Canaux déclarés par profil dans `eas.json`.
 
 ## Architecture (le « big picture »)
 
