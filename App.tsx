@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Switch, Text, useColorScheme, View,
+  Pressable, RefreshControl, ScrollView, Share, StatusBar, StyleSheet, Switch, Text, useColorScheme, View,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -125,6 +125,18 @@ function Monitor() {
   const storageFrac = m.storage && m.storage.total > 0 ? usedStorage / m.storage.total : 0;
   const netLabel = m.network ? `${t(m.network.type, lang)}${m.network.isConnected ? '' : ` (${t('disconnected', lang)})`}` : '';
 
+  async function onShare() {
+    const L = (k: string) => t(k, lang);
+    const lines = ['HILAL'];
+    if (m.battery) lines.push(`${L('battery')}: ${pct(m.battery.level)} (${batteryState(m.battery.state, lang)})`);
+    if (m.storage) lines.push(`${L('storage')}: ${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`, `${L('free')}: ${fmtBytes(m.storage.free)}`);
+    if (m.ramTotal != null) lines.push(`${L('ram')}: ${fmtBytes(m.ramTotal)}`);
+    if (m.brightness != null) lines.push(`${L('brightness')}: ${pct(m.brightness)}`);
+    if (m.network) lines.push(`${L('network')}: ${netLabel}${m.network.ip ? ` · ${m.network.ip}` : ''}`);
+    lines.push(`${L('device')}: ${m.device.model}`, `${L('system')}: ${m.device.os}`);
+    try { await Share.share({ message: lines.join('\n') }); } catch { /* annulé */ }
+  }
+
   return (
     <View style={st.root}>
       <StatusBar barStyle={theme.statusBar} />
@@ -203,6 +215,10 @@ function Monitor() {
           <Switch value={alertOn} onValueChange={toggleAlert} trackColor={{ true: theme.gold, false: theme.alertTrackOff }} thumbColor="#fff" />
         </View>
 
+        <Pressable onPress={onShare} style={st.shareBtn}>
+          <Text style={st.shareTxt}>{t('share', lang)}</Text>
+        </Pressable>
+
         <Text style={st.footer}>{t('footer', lang)} هلال</Text>
       </ScrollView>
     </View>
@@ -250,6 +266,8 @@ function makeStyles(t: Theme) {
     bubbleCenter: { position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: t.gold, opacity: 0.5 },
     bubble: { width: 26, height: 26, borderRadius: 13 },
     levelVal: { color: t.textMuted, fontSize: 14, marginTop: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
+    shareBtn: { marginTop: 22, alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 26, borderRadius: 24, borderWidth: 1, borderColor: t.gold, backgroundColor: t.chipSel },
+    shareTxt: { color: t.gold, fontSize: 15, fontWeight: '700' },
     footer: { color: t.textFooter, fontSize: 11, marginTop: 30, textAlign: 'center', lineHeight: 16 },
   });
 }
