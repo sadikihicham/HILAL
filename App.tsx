@@ -1,4 +1,6 @@
-import { ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { RefreshControl, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Battery from 'expo-battery';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
 
@@ -12,7 +14,6 @@ const fmtBytes = (b: number) => {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
 };
 const pct = (f: number) => `${Math.round(f * 100)}%`;
-
 const loadColor = (frac: number, invert = false) => {
   const f = invert ? 1 - frac : frac;
   return f > 0.5 ? '#3FB37F' : f > 0.2 ? '#E8C15A' : '#E5705B';
@@ -59,39 +60,53 @@ const batteryState = (st: Battery.BatteryState) =>
       : st === Battery.BatteryState.UNPLUGGED ? 'Sur batterie' : '';
 
 export default function App() {
-  const m = useDeviceMetrics(3000);
+  return (
+    <SafeAreaProvider>
+      <Monitor />
+    </SafeAreaProvider>
+  );
+}
+
+function Monitor() {
+  const { metrics: m, refresh } = useDeviceMetrics(3000);
+  const insets = useSafeAreaInsets();
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await refresh();
+    setRefreshing(false);
+  };
+
   const usedStorage = m.storage ? m.storage.total - m.storage.free : 0;
   const storageFrac = m.storage && m.storage.total > 0 ? usedStorage / m.storage.total : 0;
 
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" />
-      <ScrollView contentContainerStyle={s.scroll}>
+      <ScrollView
+        contentContainerStyle={[s.scroll, { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 30 }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={GOLD} colors={[GOLD]} />}
+      >
         <View style={s.header}>
           <Text style={s.brand}>HILAL</Text>
           <View style={s.seal}><Text style={s.sealTxt}>🔒 Local</Text></View>
         </View>
-        <Text style={s.subtitle}>Moniteur d’appareil · 100% local</Text>
+        <Text style={s.subtitle}>Moniteur d’appareil · tirez pour rafraîchir</Text>
 
         {m.battery && (
-          <MetricRow
-            icon="🔋" label="Batterie"
+          <MetricRow icon="🔋" label="Batterie"
             value={`${pct(m.battery.level)}${m.battery.lowPower ? ' · éco' : ''}`}
-            frac={m.battery.level}
-            color={loadColor(m.battery.level, true)}
-          />
+            frac={m.battery.level} color={loadColor(m.battery.level, true)} />
         )}
         {m.battery && !!batteryState(m.battery.state) && (
           <Text style={s.batteryState}>{batteryState(m.battery.state)}</Text>
         )}
 
         {m.storage && (
-          <MetricRow
-            icon="💾" label="Stockage"
+          <MetricRow icon="💾" label="Stockage"
             value={`${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`}
-            frac={storageFrac}
-            color={loadColor(storageFrac)}
-          />
+            frac={storageFrac} color={loadColor(storageFrac)} />
         )}
 
         <View style={s.card}>
@@ -103,9 +118,7 @@ export default function App() {
           <InfoRow label="Système" value={m.device.os} />
         </View>
 
-        <Text style={s.footer}>
-          Lecture des capteurs locaux uniquement — aucun accès réseau sortant. هلال
-        </Text>
+        <Text style={s.footer}>Lecture des capteurs locaux uniquement — aucun accès réseau sortant. هلال</Text>
       </ScrollView>
     </View>
   );
@@ -113,7 +126,7 @@ export default function App() {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
-  scroll: { padding: 22, paddingTop: 70, paddingBottom: 40 },
+  scroll: { padding: 22 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brand: { color: GOLD, fontSize: 32, fontWeight: '800', letterSpacing: 3 },
   seal: { backgroundColor: 'rgba(63,179,127,0.15)', borderColor: 'rgba(63,179,127,0.5)', borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
