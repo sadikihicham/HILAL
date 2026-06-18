@@ -6,6 +6,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "adhan": "^4.4.4",
     "expo": "~56.0.12",
+    "expo-haptics": "~56.0.3",
     "expo-location": "~56.0.18",
     "expo-notifications": "~56.0.18",
     "expo-status-bar": "~56.0.4",

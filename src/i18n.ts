@@ -5,7 +5,8 @@ export const isRTL = (l: Lang) => l === 'ar';
 
 const S: Record<Lang, Record<string, string>> = {
   fr: {
-    tabPrayer: 'Prières', tabQibla: 'Qibla', tabSettings: 'Réglages',
+    tabPrayer: 'Prières', tabQibla: 'Qibla', tabTasbih: 'Tasbih', tabSettings: 'Réglages',
+    tapToCount: 'Touchez l’écran pour compter', cycles: 'cycles', reset: 'Réinitialiser',
     next: 'Prochaine prière', at: 'à', locating: 'Localisation…',
     prayerFooter: 'Heures calculées localement · هلال',
     qiblaTitle: '🧭 Qibla', fromNorth: 'depuis le Nord', heading: 'cap',
@@ -18,7 +19,8 @@ const S: Record<Lang, Record<string, string>> = {
     language: 'Langue', remindersSet: 'rappels programmés.',
   },
   ar: {
-    tabPrayer: 'الصلوات', tabQibla: 'القبلة', tabSettings: 'الإعدادات',
+    tabPrayer: 'الصلوات', tabQibla: 'القبلة', tabTasbih: 'التسبيح', tabSettings: 'الإعدادات',
+    tapToCount: 'المس الشاشة للعدّ', cycles: 'دورات', reset: 'إعادة الضبط',
     next: 'الصلاة القادمة', at: 'في', locating: 'تحديد الموقع…',
     prayerFooter: 'أوقات محسوبة محليًا · هلال',
     qiblaTitle: '🧭 القبلة', fromNorth: 'من الشمال', heading: 'الاتجاه',

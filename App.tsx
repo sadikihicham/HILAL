@@ -7,11 +7,12 @@ import { Lang, t } from './src/i18n';
 import { configureNotifications, schedulePrayerNotifications } from './src/notifications';
 import PrayerView from './src/PrayerView';
 import QiblaView from './src/QiblaView';
+import TasbihView from './src/TasbihView';
 import SettingsView, { NOTIF_KEY } from './src/SettingsView';
 
 configureNotifications();
 
-type Tab = 'prayer' | 'qibla' | 'settings';
+type Tab = 'prayer' | 'qibla' | 'tasbih' | 'settings';
 
 const METHOD_KEY = 'calc.method';
 const LANG_KEY = 'app.lang';
@@ -52,6 +53,7 @@ export default function App() {
       <View style={styles.content}>
         {tab === 'prayer' && <PrayerView coords={coords} city={city} error={error} method={method} lang={lang} />}
         {tab === 'qibla' && <QiblaView coords={coords} error={error} lang={lang} />}
+        {tab === 'tasbih' && <TasbihView lang={lang} />}
         {tab === 'settings' && (
           <SettingsView coords={coords} method={method} onChangeMethod={changeMethod}
             lang={lang} onChangeLang={changeLang} />
@@ -60,6 +62,7 @@ export default function App() {
       <View style={styles.tabbar}>
         <TabButton label={t('tabPrayer', lang)} icon="🕌" active={tab === 'prayer'} onPress={() => setTab('prayer')} />
         <TabButton label={t('tabQibla', lang)} icon="🧭" active={tab === 'qibla'} onPress={() => setTab('qibla')} />
+        <TabButton label={t('tabTasbih', lang)} icon="📿" active={tab === 'tasbih'} onPress={() => setTab('tasbih')} />
         <TabButton label={t('tabSettings', lang)} icon="⚙️" active={tab === 'settings'} onPress={() => setTab('settings')} />
       </View>
     </View>
