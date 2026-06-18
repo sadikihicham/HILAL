@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import { RefreshControl, ScrollView, StatusBar, StyleSheet, Switch, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Battery from 'expo-battery';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
 import { configureNotifications, notifyLowBattery, requestNotificationPermission } from './src/notifications';
+import { Lang, LANGS, isRTL, t } from './src/i18n';
 
 configureNotifications();
 
-const ALERT_KEY = 'alert.lowbattery';
-const LOW = 0.15;     // seuil d'alerte
-const REARM = 0.20;   // ré-armement (hystérésis)
-
 const GOLD = '#C9A24B';
 const BG = '#0E1A16';
+const ALERT_KEY = 'alert.lowbattery';
+const LANG_KEY = 'app.lang';
+const LOW = 0.15;
+const REARM = 0.20;
 
 const fmtBytes = (b: number) => {
   const u = ['o', 'Ko', 'Mo', 'Go', 'To'];
@@ -27,14 +28,6 @@ const loadColor = (frac: number, invert = false) => {
   return f > 0.5 ? '#3FB37F' : f > 0.2 ? '#E8C15A' : '#E5705B';
 };
 
-function Gauge({ value, color }: { value: number; color: string }) {
-  return (
-    <View style={s.track}>
-      <View style={[s.fill, { width: `${Math.max(2, Math.min(100, value * 100))}%`, backgroundColor: color }]} />
-    </View>
-  );
-}
-
 function Sparkline({ values, color }: { values: number[]; color: string }) {
   if (values.length < 2) return null;
   return (
@@ -46,12 +39,18 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   );
 }
 
-function MetricRow({ icon, label, value, frac, color }: {
-  icon: string; label: string; value: string; frac: number; color: string;
+function Gauge({ value, color }: { value: number; color: string }) {
+  return (
+    <View style={s.track}><View style={[s.fill, { width: `${Math.max(2, Math.min(100, value * 100))}%`, backgroundColor: color }]} /></View>
+  );
+}
+
+function MetricRow({ icon, label, value, frac, color, rtl }: {
+  icon: string; label: string; value: string; frac: number; color: string; rtl: boolean;
 }) {
   return (
     <View style={s.metric}>
-      <View style={s.metricHead}>
+      <View style={[s.metricHead, rtl && s.rev]}>
         <Text style={s.metricLabel}>{icon}  {label}</Text>
         <Text style={[s.metricValue, { color }]}>{value}</Text>
       </View>
@@ -60,30 +59,22 @@ function MetricRow({ icon, label, value, frac, color }: {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value, rtl }: { label: string; value: string; rtl: boolean }) {
   return (
-    <View style={s.info}>
+    <View style={[s.info, rtl && s.rev]}>
       <Text style={s.infoLabel}>{label}</Text>
       <Text style={s.infoValue}>{value}</Text>
     </View>
   );
 }
 
-const NET_LABEL: Record<string, string> = {
-  WIFI: 'Wi-Fi', CELLULAR: 'Cellulaire', ETHERNET: 'Ethernet', BLUETOOTH: 'Bluetooth',
-  VPN: 'VPN', NONE: 'Hors-ligne', UNKNOWN: 'Inconnu', OTHER: 'Autre',
-};
-const batteryState = (st: Battery.BatteryState) =>
-  st === Battery.BatteryState.CHARGING ? '⚡ En charge'
-    : st === Battery.BatteryState.FULL ? '✓ Pleine'
-      : st === Battery.BatteryState.UNPLUGGED ? 'Sur batterie' : '';
+const batteryState = (st: Battery.BatteryState, lang: Lang) =>
+  st === Battery.BatteryState.CHARGING ? t('charging', lang)
+    : st === Battery.BatteryState.FULL ? t('full', lang)
+      : st === Battery.BatteryState.UNPLUGGED ? t('onBattery', lang) : '';
 
 export default function App() {
-  return (
-    <SafeAreaProvider>
-      <Monitor />
-    </SafeAreaProvider>
-  );
+  return <SafeAreaProvider><Monitor /></SafeAreaProvider>;
 }
 
 function Monitor() {
@@ -91,9 +82,16 @@ function Monitor() {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
   const [alertOn, setAlertOn] = useState(false);
+  const [lang, setLang] = useState<Lang>('fr');
   const firedRef = useRef(false);
+  const rtl = isRTL(lang);
 
-  useEffect(() => { AsyncStorage.getItem(ALERT_KEY).then((v) => setAlertOn(v === '1')); }, []);
+  useEffect(() => {
+    AsyncStorage.getItem(ALERT_KEY).then((v) => setAlertOn(v === '1'));
+    AsyncStorage.getItem(LANG_KEY).then((v) => { if (v === 'fr' || v === 'en' || v === 'ar') setLang(v); });
+  }, []);
+
+  async function changeLang(l: Lang) { setLang(l); await AsyncStorage.setItem(LANG_KEY, l); }
 
   async function toggleAlert(v: boolean) {
     setAlertOn(v);
@@ -101,26 +99,18 @@ function Monitor() {
     if (v) { const ok = await requestNotificationPermission(); if (!ok) { setAlertOn(false); await AsyncStorage.setItem(ALERT_KEY, '0'); } }
   }
 
-  // Alerte batterie faible : front montant + hystérésis (pas de spam).
   useEffect(() => {
     const b = m.battery;
     if (!b) return;
     const charging = b.state === Battery.BatteryState.CHARGING || b.state === Battery.BatteryState.FULL;
     if (b.level >= REARM) firedRef.current = false;
-    if (alertOn && !charging && b.level < LOW && !firedRef.current) {
-      firedRef.current = true;
-      notifyLowBattery(b.level);
-    }
+    if (alertOn && !charging && b.level < LOW && !firedRef.current) { firedRef.current = true; notifyLowBattery(b.level); }
   }, [m.battery, alertOn]);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await refresh();
-    setRefreshing(false);
-  };
-
+  const onRefresh = async () => { setRefreshing(true); await refresh(); setRefreshing(false); };
   const usedStorage = m.storage ? m.storage.total - m.storage.free : 0;
   const storageFrac = m.storage && m.storage.total > 0 ? usedStorage / m.storage.total : 0;
+  const netLabel = m.network ? `${t(m.network.type, lang)}${m.network.isConnected ? '' : ` (${t('disconnected', lang)})`}` : '';
 
   return (
     <View style={s.root}>
@@ -131,47 +121,56 @@ function Monitor() {
       >
         <View style={s.header}>
           <Text style={s.brand}>HILAL</Text>
-          <View style={s.seal}><Text style={s.sealTxt}>🔒 Local</Text></View>
+          <View style={s.headerRight}>
+            <View style={s.langRow}>
+              {LANGS.map((L) => (
+                <Pressable key={L.id} onPress={() => changeLang(L.id)} style={[s.langBtn, lang === L.id && s.langSel]}>
+                  <Text style={[s.langTxt, lang === L.id && s.langTxtSel]}>{L.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={s.seal}><Text style={s.sealTxt}>🔒 Local</Text></View>
+          </View>
         </View>
-        <Text style={s.subtitle}>Moniteur d’appareil · tirez pour rafraîchir</Text>
+        <Text style={[s.subtitle, rtl && s.right]}>{t('subtitle', lang)}</Text>
 
         {m.battery && (
-          <MetricRow icon="🔋" label="Batterie"
-            value={`${pct(m.battery.level)}${m.battery.lowPower ? ' · éco' : ''}`}
-            frac={m.battery.level} color={loadColor(m.battery.level, true)} />
+          <MetricRow icon="🔋" label={t('battery', lang)}
+            value={`${pct(m.battery.level)}${m.battery.lowPower ? ` · ${t('eco', lang)}` : ''}`}
+            frac={m.battery.level} color={loadColor(m.battery.level, true)} rtl={rtl} />
         )}
-        {m.battery && !!batteryState(m.battery.state) && (
-          <Text style={s.batteryState}>{batteryState(m.battery.state)}</Text>
+        {m.battery && !!batteryState(m.battery.state, lang) && (
+          <Text style={[s.batteryState, rtl && s.right]}>{batteryState(m.battery.state, lang)}</Text>
         )}
         {m.batteryHistory.length > 1 && (
           <Sparkline values={m.batteryHistory} color={loadColor(m.battery?.level ?? 1, true)} />
         )}
 
         {m.storage && (
-          <MetricRow icon="💾" label="Stockage"
+          <MetricRow icon="💾" label={t('storage', lang)}
             value={`${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`}
-            frac={storageFrac} color={loadColor(storageFrac)} />
+            frac={storageFrac} color={loadColor(storageFrac)} rtl={rtl} />
         )}
 
         <View style={s.card}>
-          {m.storage && <InfoRow label="Espace libre" value={fmtBytes(m.storage.free)} />}
-          {m.ramTotal != null && <InfoRow label="Mémoire (RAM)" value={fmtBytes(m.ramTotal)} />}
-          {m.brightness != null && <InfoRow label="Luminosité" value={pct(m.brightness)} />}
-          {m.network && <InfoRow label="Réseau" value={`${NET_LABEL[m.network.type] ?? m.network.type}${m.network.isConnected ? '' : ' (déconnecté)'}`} />}
-          {m.network?.ip && <InfoRow label="Adresse IP" value={m.network.ip} />}
-          <InfoRow label="Appareil" value={m.device.model} />
-          <InfoRow label="Système" value={m.device.os} />
+          {m.storage && <InfoRow label={t('free', lang)} value={fmtBytes(m.storage.free)} rtl={rtl} />}
+          {m.ramTotal != null && <InfoRow label={t('ram', lang)} value={fmtBytes(m.ramTotal)} rtl={rtl} />}
+          {m.brightness != null && <InfoRow label={t('brightness', lang)} value={pct(m.brightness)} rtl={rtl} />}
+          {m.network && <InfoRow label={t('network', lang)} value={netLabel} rtl={rtl} />}
+          {m.network?.ip && <InfoRow label={t('ip', lang)} value={m.network.ip} rtl={rtl} />}
+          <InfoRow label={t('device', lang)} value={m.device.model} rtl={rtl} />
+          <InfoRow label={t('system', lang)} value={m.device.os} rtl={rtl} />
         </View>
 
-        <View style={s.alertRow}>
-          <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={s.alertLabel}>🔔 Alerte batterie faible</Text>
-            <Text style={s.alertSub}>Notification locale sous {Math.round(LOW * 100)}% (hors charge).</Text>
+        <View style={[s.alertRow, rtl && s.rev]}>
+          <View style={{ flex: 1, paddingHorizontal: 12 }}>
+            <Text style={[s.alertLabel, rtl && s.right]}>{t('alertTitle', lang)}</Text>
+            <Text style={[s.alertSub, rtl && s.right]}>{t('alertSub', lang)}</Text>
           </View>
           <Switch value={alertOn} onValueChange={toggleAlert} trackColor={{ true: GOLD, false: '#28423a' }} thumbColor="#fff" />
         </View>
 
-        <Text style={s.footer}>Lecture des capteurs locaux uniquement — aucun accès réseau sortant. هلال</Text>
+        <Text style={s.footer}>{t('footer', lang)} هلال</Text>
       </ScrollView>
     </View>
   );
@@ -181,10 +180,18 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
   scroll: { padding: 22 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brand: { color: GOLD, fontSize: 32, fontWeight: '800', letterSpacing: 3 },
+  langRow: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 2 },
+  langBtn: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 6 },
+  langSel: { backgroundColor: 'rgba(201,162,75,0.25)' },
+  langTxt: { color: '#9bb3a8', fontSize: 13, fontWeight: '700' },
+  langTxtSel: { color: '#fff' },
   seal: { backgroundColor: 'rgba(63,179,127,0.15)', borderColor: 'rgba(63,179,127,0.5)', borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   sealTxt: { color: '#5fd3a0', fontSize: 12, fontWeight: '700' },
-  subtitle: { color: '#7f9b90', fontSize: 13, marginTop: 6, marginBottom: 26 },
+  subtitle: { color: '#7f9b90', fontSize: 13, marginTop: 8, marginBottom: 26 },
+  right: { textAlign: 'right' },
+  rev: { flexDirection: 'row-reverse' },
   metric: { marginBottom: 18 },
   metricHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 },
   metricLabel: { color: '#e6efe9', fontSize: 16, fontWeight: '600' },
@@ -198,11 +205,7 @@ const s = StyleSheet.create({
   info: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.06)' },
   infoLabel: { color: '#9bb3a8', fontSize: 14 },
   infoValue: { color: '#fff', fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  alertRow: {
-    flexDirection: 'row', alignItems: 'center', marginTop: 20, padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16,
-    borderWidth: 1, borderColor: 'rgba(201,162,75,0.18)',
-  },
+  alertRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20, padding: 16, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(201,162,75,0.18)' },
   alertLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
   alertSub: { color: '#9bb3a8', fontSize: 12, marginTop: 4, lineHeight: 16 },
   footer: { color: '#5e7268', fontSize: 11, marginTop: 30, textAlign: 'center', lineHeight: 16 },
