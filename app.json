@@ -16,9 +16,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0E3B2E",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
