@@ -6,6 +6,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Battery from 'expo-battery';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
+import { useTilt } from './src/useTilt';
 import { configureNotifications, notifyLowBattery, requestNotificationPermission } from './src/notifications';
 import { Lang, LANGS, isRTL, t } from './src/i18n';
 import { getTheme, Mode, Theme } from './src/theme';
@@ -90,6 +91,7 @@ function Monitor() {
   const [lang, setLang] = useState<Lang>('fr');
   const [mode, setMode] = useState<Mode>(system === 'light' ? 'light' : 'dark');
   const firedRef = useRef(false);
+  const tilt = useTilt();
 
   const theme = getTheme(mode);
   const st = useMemo(() => makeStyles(theme), [theme]);
@@ -176,6 +178,23 @@ function Monitor() {
           <InfoRow label={t('system', lang)} value={m.device.os} rtl={rtl} st={st} />
         </View>
 
+        <View style={st.levelCard}>
+          <Text style={st.levelTitle}>📐 {t('level', lang)}</Text>
+          <View style={st.bubbleOuter}>
+            <View style={st.bubbleCenter} />
+            <View style={[st.bubble, {
+              backgroundColor: tilt.angle < 2.5 ? theme.gold : '#5fd3a0',
+              transform: [
+                { translateX: Math.max(-46, Math.min(46, -tilt.x * 46)) },
+                { translateY: Math.max(-46, Math.min(46, tilt.y * 46)) },
+              ],
+            }]} />
+          </View>
+          <Text style={[st.levelVal, tilt.angle < 2.5 && { color: theme.gold }]}>
+            {tilt.angle < 2.5 ? t('levelOk', lang) : `${Math.round(tilt.angle)}° ${t('tilt', lang)}`}
+          </Text>
+        </View>
+
         <View style={[st.alertRow, rtl && st.rev]}>
           <View style={{ flex: 1, paddingHorizontal: 12 }}>
             <Text style={[st.alertLabel, rtl && st.right]}>{t('alertTitle', lang)}</Text>
@@ -225,6 +244,12 @@ function makeStyles(t: Theme) {
     alertRow: { flexDirection: 'row', alignItems: 'center', marginTop: 20, padding: 16, backgroundColor: t.card, borderRadius: 16, borderWidth: 1, borderColor: t.cardBorder },
     alertLabel: { color: t.textPrimary, fontSize: 15, fontWeight: '600' },
     alertSub: { color: t.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 16 },
+    levelCard: { marginTop: 18, padding: 18, backgroundColor: t.card, borderRadius: 16, borderWidth: 1, borderColor: t.cardBorder, alignItems: 'center' },
+    levelTitle: { color: t.textPrimary, fontSize: 15, fontWeight: '600', alignSelf: 'flex-start', marginBottom: 16 },
+    bubbleOuter: { width: 140, height: 140, borderRadius: 70, borderWidth: 1, borderColor: t.cardBorder, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' },
+    bubbleCenter: { position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: t.gold, opacity: 0.5 },
+    bubble: { width: 26, height: 26, borderRadius: 13 },
+    levelVal: { color: t.textMuted, fontSize: 14, marginTop: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
     footer: { color: t.textFooter, fontSize: 11, marginTop: 30, textAlign: 'center', lineHeight: 16 },
   });
 }
