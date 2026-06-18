@@ -1,0 +1,27 @@
+name: EAS Update
+
+# Publie le bundle JS (OTA) sur le projet EAS à chaque push sur master.
+# Prérequis : ajouter le secret EXPO_TOKEN dans GitHub
+# (Settings → Secrets and variables → Actions), généré sur
+# expo.dev → Account → Settings → Access tokens.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Publish update
+        run: eas update --branch preview --message "${{ github.event.head_commit.message }}" --non-interactive
