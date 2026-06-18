@@ -10,26 +10,14 @@ import { useTilt } from './src/useTilt';
 import { configureNotifications, notifyLowBattery, requestNotificationPermission } from './src/notifications';
 import { Lang, LANGS, isRTL, t } from './src/i18n';
 import { getTheme, Mode, Theme } from './src/theme';
+import { fmtBytes, pct, loadColor } from './src/format';
+import { lowBatteryStep } from './src/battery';
 
 configureNotifications();
 
 const ALERT_KEY = 'alert.lowbattery';
 const LANG_KEY = 'app.lang';
 const THEME_KEY = 'theme.mode';
-const LOW = 0.15;
-const REARM = 0.20;
-
-const fmtBytes = (b: number) => {
-  const u = ['o', 'Ko', 'Mo', 'Go', 'To'];
-  let v = Math.max(0, b), i = 0;
-  while (v >= 1024 && i < u.length - 1) { v /= 1024; i += 1; }
-  return `${v.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
-};
-const pct = (f: number) => `${Math.round(f * 100)}%`;
-const loadColor = (frac: number, invert = false) => {
-  const f = invert ? 1 - frac : frac;
-  return f > 0.5 ? '#3FB37F' : f > 0.2 ? '#E8C15A' : '#E5705B';
-};
 
 type S = ReturnType<typeof makeStyles>;
 
@@ -116,8 +104,9 @@ function Monitor() {
     const b = m.battery;
     if (!b) return;
     const charging = b.state === Battery.BatteryState.CHARGING || b.state === Battery.BatteryState.FULL;
-    if (b.level >= REARM) firedRef.current = false;
-    if (alertOn && !charging && b.level < LOW && !firedRef.current) { firedRef.current = true; notifyLowBattery(b.level); }
+    const { fired, notify } = lowBatteryStep(firedRef.current, { level: b.level, charging, alertOn });
+    firedRef.current = fired;
+    if (notify) notifyLowBattery(b.level);
   }, [m.battery, alertOn]);
 
   const onRefresh = async () => { setRefreshing(true); await refresh(); setRefreshing(false); };

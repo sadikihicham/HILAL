@@ -26,11 +26,14 @@ Il affiche l'état du matériel **en lecture seule, 100% local**.
 npm install
 npx expo start              # Metro + Expo Go ; --tunnel pour hors-réseau
 npm run ios | android | web # cible directe (simulateur / émulateur / web)
-npx tsc --noEmit            # type-check — SEULE porte locale (pas d'ESLint, pas de tests)
+npx tsc --noEmit            # type-check (TypeScript strict) — porte de qualité
+npm test                    # Vitest : tests de logique pure (un seul : npx vitest run tests/battery.test.ts)
 ```
 
-Il n'y a **ni ESLint, ni Jest/Vitest** dans le repo. La porte de qualité locale est `npx tsc --noEmit`
-(TypeScript strict). Pas de runner de tests : ne pas inventer `npm test`.
+Pas d'ESLint. Les **deux portes locales** sont `npx tsc --noEmit` et `npm test`. Vitest ne couvre que
+la **logique pure** (`src/format.ts`, `src/battery.ts`) en environnement `node` — **pas** de composants
+React Native (importer `App.tsx` tirerait RN et casserait). Tout code testable doit donc être extrait
+dans un module pur, puis ré-importé par `App.tsx` (cf. `fmtBytes`/`lowBatteryStep`). Tests dans `tests/`.
 
 **EAS / déploiement :**
 ```bash
@@ -40,7 +43,7 @@ eas build --profile development|preview|production -p ios|android
 Profils dans `eas.json` ; projet lié via `extra.eas.projectId` (`app.json`).
 
 ⚠️ **CI** : `.github/workflows/eas-update.yml` publie `eas update --branch preview` **à chaque push
-sur `master`** (secret GitHub `EXPO_TOKEN` requis), gardé par la porte `tsc`. Donc **un push sur
+sur `master`** (secret GitHub `EXPO_TOKEN` requis), gardé par les portes `tsc` + `npm test`. Donc **un push sur
 master = une OTA sur le canal preview** — en tenir compte avant de pousser. Le canal **`production`
 n'est mis à jour que manuellement** (`eas update --branch production`) : les pushes de routine ne
 touchent jamais les utilisateurs prod. Canaux déclarés par profil dans `eas.json`.
