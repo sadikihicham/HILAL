@@ -1,49 +1,46 @@
-# 🌙 HILAL
+# 🖥️ HILAL
 
-Utilitaire islamique mobile (iOS + Android) en **Expo / React Native**. **100% local** —
-les heures de prière et la Qibla sont calculées hors-ligne (`adhan`), sans aucun serveur.
+**Moniteur d'appareil** mobile (iOS + Android) — la version mobile de
+[macOS State](https://github.com/sadikihicham/macos-state). Même concept :
+surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / React Native.
 
-## Fonctionnalités
+## Indicateurs
 
-- **Prières** — date Hijri, prochaine prière + compte à rebours, 6 horaires du jour,
-  **10 méthodes de calcul** (Umm al-Qura, Dubaï, Qatar, Koweït, Ligue islamique, Égypte,
-  Karachi, ISNA, Turquie, Téhéran).
-- **Qibla** — boussole **en direct** (aiguille 🕋, détection d'alignement).
-- **Tasbih** — compteur de dhikr avec retour haptique, cycles de 33, dhikr au choix.
-- **Réglages** — langue **Français / العربية (RTL)**, notifications adhan locales, méthode.
+- **Batterie** — niveau, état (charge / batterie / pleine), mode économie.
+- **Stockage** — utilisé / total, espace libre.
+- **Mémoire (RAM)** — capacité totale.
+- **Réseau** — type (Wi-Fi / Cellulaire / …), connexion, adresse IP.
+- **Appareil** — modèle, système.
 
-## Lancer en développement (Expo Go)
+> ⚠️ Contrainte mobile : contrairement au desktop, iOS/Android **sandboxent** les apps —
+> pas d'accès au **CPU**, à la **liste des process** ni au **kill** d'autres apps (impossible
+> par les API mobiles). HILAL surveille donc **l'appareil lui-même**, en lecture seule.
+
+## Lancer (Expo Go)
 
 ```bash
 npm install
-npx expo start            # LAN — même WiFi
+npx expo start            # même WiFi
 npx expo start --tunnel   # accessible depuis n'importe quel réseau
 ```
-Scanne le QR avec **Expo Go**, ou saisis l'URL `exp://…` manuellement.
+Scanne le QR avec **Expo Go** ou saisis l'URL `exp://…`.
 
 ## Publier (EAS) — nécessite un compte Expo
 
 ```bash
 eas login
-eas update --branch preview -m "message"          # OTA (bundle JS)
-eas build --profile development -p ios             # app installable (icône + notifs fiables)
+eas update --branch preview -m "message"        # OTA
+eas build --profile development -p ios           # app installable (icône + capteurs natifs)
 ```
-Profils de build dans `eas.json` ; projet EAS lié via `extra.eas.projectId` (app.json).
-
-### Publication automatique sur push
-Le workflow `.github/workflows/eas-update.yml` lance `eas update` à chaque push sur `master`.
-Ajoute le secret **`EXPO_TOKEN`** dans GitHub (Settings → Secrets → Actions) — génère-le sur
-expo.dev → Account → Access Tokens.
+Profils dans `eas.json` ; projet lié via `extra.eas.projectId` (app.json).
+Le workflow `.github/workflows/eas-update.yml` publie via `eas update` à chaque push
+(ajouter le secret **`EXPO_TOKEN`** dans GitHub).
 
 ## Structure
 
 ```
-App.tsx              # conteneur à onglets (Prières / Qibla / Tasbih / Réglages)
-src/
-  islamic.ts         # calculs purs (Hijri, prières, Qibla, méthodes)
-  i18n.ts            # FR / AR + mois Hijri arabes + RTL
-  useLocation.ts     # hook géoloc
-  PrayerView · QiblaView · TasbihView · SettingsView · notifications.ts
+App.tsx                  # écran moniteur (jauges + infos)
+src/useDeviceMetrics.ts  # échantillonnage capteurs (batterie/stockage/RAM/réseau/appareil)
 ```
 
-100% local, sans réseau — اللهم تقبّل.
+100% local — هلال.

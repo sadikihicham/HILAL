@@ -1,95 +1,134 @@
-import { useEffect, useState } from 'react';
-import { Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useLocation } from './src/useLocation';
-import { GOLD, GREEN } from './src/islamic';
-import { Lang, t } from './src/i18n';
-import { configureNotifications, schedulePrayerNotifications } from './src/notifications';
-import PrayerView from './src/PrayerView';
-import QiblaView from './src/QiblaView';
-import TasbihView from './src/TasbihView';
-import SettingsView, { NOTIF_KEY } from './src/SettingsView';
+import { ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import * as Battery from 'expo-battery';
+import { useDeviceMetrics } from './src/useDeviceMetrics';
 
-configureNotifications();
+const GOLD = '#C9A24B';
+const BG = '#0E1A16';
 
-type Tab = 'prayer' | 'qibla' | 'tasbih' | 'settings';
+const fmtBytes = (b: number) => {
+  const u = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  let v = Math.max(0, b), i = 0;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i += 1; }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
+};
+const pct = (f: number) => `${Math.round(f * 100)}%`;
 
-const METHOD_KEY = 'calc.method';
-const LANG_KEY = 'app.lang';
+const loadColor = (frac: number, invert = false) => {
+  const f = invert ? 1 - frac : frac;
+  return f > 0.5 ? '#3FB37F' : f > 0.2 ? '#E8C15A' : '#E5705B';
+};
 
-export default function App() {
-  const { coords, city, error } = useLocation();
-  const [tab, setTab] = useState<Tab>('prayer');
-  const [method, setMethod] = useState('UmmAlQura');
-  const [lang, setLang] = useState<Lang>('fr');
-
-  useEffect(() => {
-    AsyncStorage.getItem(METHOD_KEY).then((v) => { if (v) setMethod(v); });
-    AsyncStorage.getItem(LANG_KEY).then((v) => { if (v === 'ar' || v === 'fr') setLang(v); });
-  }, []);
-
-  async function changeMethod(id: string) {
-    setMethod(id);
-    await AsyncStorage.setItem(METHOD_KEY, id);
-  }
-
-  async function changeLang(l: Lang) {
-    setLang(l);
-    await AsyncStorage.setItem(LANG_KEY, l);
-  }
-
-  // Reprogramme les rappels à l'ouverture / au changement de méthode (les heures
-  // changent chaque jour et selon la méthode).
-  useEffect(() => {
-    if (!coords) return;
-    AsyncStorage.getItem(NOTIF_KEY).then((v) => {
-      if (v === '1') schedulePrayerNotifications(coords.lat, coords.lng, method);
-    });
-  }, [coords, method]);
-
+function Gauge({ value, color }: { value: number; color: string }) {
   return (
-    <View style={styles.root}>
-      <StatusBar barStyle="light-content" />
-      <View style={styles.content}>
-        {tab === 'prayer' && <PrayerView coords={coords} city={city} error={error} method={method} lang={lang} />}
-        {tab === 'qibla' && <QiblaView coords={coords} error={error} lang={lang} />}
-        {tab === 'tasbih' && <TasbihView lang={lang} />}
-        {tab === 'settings' && (
-          <SettingsView coords={coords} method={method} onChangeMethod={changeMethod}
-            lang={lang} onChangeLang={changeLang} />
-        )}
-      </View>
-      <View style={styles.tabbar}>
-        <TabButton label={t('tabPrayer', lang)} icon="🕌" active={tab === 'prayer'} onPress={() => setTab('prayer')} />
-        <TabButton label={t('tabQibla', lang)} icon="🧭" active={tab === 'qibla'} onPress={() => setTab('qibla')} />
-        <TabButton label={t('tabTasbih', lang)} icon="📿" active={tab === 'tasbih'} onPress={() => setTab('tasbih')} />
-        <TabButton label={t('tabSettings', lang)} icon="⚙️" active={tab === 'settings'} onPress={() => setTab('settings')} />
-      </View>
+    <View style={s.track}>
+      <View style={[s.fill, { width: `${Math.max(2, Math.min(100, value * 100))}%`, backgroundColor: color }]} />
     </View>
   );
 }
 
-function TabButton({ label, icon, active, onPress }: {
-  label: string; icon: string; active: boolean; onPress: () => void;
+function MetricRow({ icon, label, value, frac, color }: {
+  icon: string; label: string; value: string; frac: number; color: string;
 }) {
   return (
-    <Pressable style={styles.tab} onPress={onPress} hitSlop={8}>
-      <Text style={[styles.tabIcon, !active && styles.tabInactive]}>{icon}</Text>
-      <Text style={[styles.tabLabel, active ? styles.tabActive : styles.tabInactive]}>{label}</Text>
-    </Pressable>
+    <View style={s.metric}>
+      <View style={s.metricHead}>
+        <Text style={s.metricLabel}>{icon}  {label}</Text>
+        <Text style={[s.metricValue, { color }]}>{value}</Text>
+      </View>
+      <Gauge value={frac} color={color} />
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: GREEN },
-  content: { flex: 1 },
-  tabbar: {
-    flexDirection: 'row', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)',
-    paddingBottom: 26, paddingTop: 10, backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  tab: { flex: 1, alignItems: 'center', gap: 3 },
-  tabIcon: { fontSize: 20 },
-  tabLabel: { fontSize: 12, fontWeight: '600' },
-  tabActive: { color: GOLD },
-  tabInactive: { color: '#6f9486', opacity: 0.85 },
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={s.info}>
+      <Text style={s.infoLabel}>{label}</Text>
+      <Text style={s.infoValue}>{value}</Text>
+    </View>
+  );
+}
+
+const NET_LABEL: Record<string, string> = {
+  WIFI: 'Wi-Fi', CELLULAR: 'Cellulaire', ETHERNET: 'Ethernet', BLUETOOTH: 'Bluetooth',
+  VPN: 'VPN', NONE: 'Hors-ligne', UNKNOWN: 'Inconnu', OTHER: 'Autre',
+};
+const batteryState = (st: Battery.BatteryState) =>
+  st === Battery.BatteryState.CHARGING ? '⚡ En charge'
+    : st === Battery.BatteryState.FULL ? '✓ Pleine'
+      : st === Battery.BatteryState.UNPLUGGED ? 'Sur batterie' : '';
+
+export default function App() {
+  const m = useDeviceMetrics(3000);
+  const usedStorage = m.storage ? m.storage.total - m.storage.free : 0;
+  const storageFrac = m.storage && m.storage.total > 0 ? usedStorage / m.storage.total : 0;
+
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" />
+      <ScrollView contentContainerStyle={s.scroll}>
+        <View style={s.header}>
+          <Text style={s.brand}>HILAL</Text>
+          <View style={s.seal}><Text style={s.sealTxt}>🔒 Local</Text></View>
+        </View>
+        <Text style={s.subtitle}>Moniteur d’appareil · 100% local</Text>
+
+        {m.battery && (
+          <MetricRow
+            icon="🔋" label="Batterie"
+            value={`${pct(m.battery.level)}${m.battery.lowPower ? ' · éco' : ''}`}
+            frac={m.battery.level}
+            color={loadColor(m.battery.level, true)}
+          />
+        )}
+        {m.battery && !!batteryState(m.battery.state) && (
+          <Text style={s.batteryState}>{batteryState(m.battery.state)}</Text>
+        )}
+
+        {m.storage && (
+          <MetricRow
+            icon="💾" label="Stockage"
+            value={`${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`}
+            frac={storageFrac}
+            color={loadColor(storageFrac)}
+          />
+        )}
+
+        <View style={s.card}>
+          {m.storage && <InfoRow label="Espace libre" value={fmtBytes(m.storage.free)} />}
+          {m.ramTotal != null && <InfoRow label="Mémoire (RAM)" value={fmtBytes(m.ramTotal)} />}
+          {m.network && <InfoRow label="Réseau" value={`${NET_LABEL[m.network.type] ?? m.network.type}${m.network.isConnected ? '' : ' (déconnecté)'}`} />}
+          {m.network?.ip && <InfoRow label="Adresse IP" value={m.network.ip} />}
+          <InfoRow label="Appareil" value={m.device.model} />
+          <InfoRow label="Système" value={m.device.os} />
+        </View>
+
+        <Text style={s.footer}>
+          Lecture des capteurs locaux uniquement — aucun accès réseau sortant. هلال
+        </Text>
+      </ScrollView>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: BG },
+  scroll: { padding: 22, paddingTop: 70, paddingBottom: 40 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  brand: { color: GOLD, fontSize: 32, fontWeight: '800', letterSpacing: 3 },
+  seal: { backgroundColor: 'rgba(63,179,127,0.15)', borderColor: 'rgba(63,179,127,0.5)', borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  sealTxt: { color: '#5fd3a0', fontSize: 12, fontWeight: '700' },
+  subtitle: { color: '#7f9b90', fontSize: 13, marginTop: 6, marginBottom: 26 },
+  metric: { marginBottom: 18 },
+  metricHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 },
+  metricLabel: { color: '#e6efe9', fontSize: 16, fontWeight: '600' },
+  metricValue: { fontSize: 16, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  track: { height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
+  fill: { height: 10, borderRadius: 5 },
+  batteryState: { color: '#7f9b90', fontSize: 13, marginTop: -10, marginBottom: 18 },
+  card: { backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: 6, marginTop: 8, borderWidth: 1, borderColor: 'rgba(201,162,75,0.18)' },
+  info: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.06)' },
+  infoLabel: { color: '#9bb3a8', fontSize: 14 },
+  infoValue: { color: '#fff', fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  footer: { color: '#5e7268', fontSize: 11, marginTop: 30, textAlign: 'center', lineHeight: 16 },
 });
