@@ -1,8 +1,16 @@
-import { useState } from 'react';
-import { RefreshControl, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { RefreshControl, ScrollView, StatusBar, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Battery from 'expo-battery';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
+import { configureNotifications, notifyLowBattery, requestNotificationPermission } from './src/notifications';
+
+configureNotifications();
+
+const ALERT_KEY = 'alert.lowbattery';
+const LOW = 0.15;     // seuil d'alerte
+const REARM = 0.20;   // ré-armement (hystérésis)
 
 const GOLD = '#C9A24B';
 const BG = '#0E1A16';
@@ -82,6 +90,28 @@ function Monitor() {
   const { metrics: m, refresh } = useDeviceMetrics(3000);
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
+  const [alertOn, setAlertOn] = useState(false);
+  const firedRef = useRef(false);
+
+  useEffect(() => { AsyncStorage.getItem(ALERT_KEY).then((v) => setAlertOn(v === '1')); }, []);
+
+  async function toggleAlert(v: boolean) {
+    setAlertOn(v);
+    await AsyncStorage.setItem(ALERT_KEY, v ? '1' : '0');
+    if (v) { const ok = await requestNotificationPermission(); if (!ok) { setAlertOn(false); await AsyncStorage.setItem(ALERT_KEY, '0'); } }
+  }
+
+  // Alerte batterie faible : front montant + hystérésis (pas de spam).
+  useEffect(() => {
+    const b = m.battery;
+    if (!b) return;
+    const charging = b.state === Battery.BatteryState.CHARGING || b.state === Battery.BatteryState.FULL;
+    if (b.level >= REARM) firedRef.current = false;
+    if (alertOn && !charging && b.level < LOW && !firedRef.current) {
+      firedRef.current = true;
+      notifyLowBattery(b.level);
+    }
+  }, [m.battery, alertOn]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -126,10 +156,19 @@ function Monitor() {
         <View style={s.card}>
           {m.storage && <InfoRow label="Espace libre" value={fmtBytes(m.storage.free)} />}
           {m.ramTotal != null && <InfoRow label="Mémoire (RAM)" value={fmtBytes(m.ramTotal)} />}
+          {m.brightness != null && <InfoRow label="Luminosité" value={pct(m.brightness)} />}
           {m.network && <InfoRow label="Réseau" value={`${NET_LABEL[m.network.type] ?? m.network.type}${m.network.isConnected ? '' : ' (déconnecté)'}`} />}
           {m.network?.ip && <InfoRow label="Adresse IP" value={m.network.ip} />}
           <InfoRow label="Appareil" value={m.device.model} />
           <InfoRow label="Système" value={m.device.os} />
+        </View>
+
+        <View style={s.alertRow}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={s.alertLabel}>🔔 Alerte batterie faible</Text>
+            <Text style={s.alertSub}>Notification locale sous {Math.round(LOW * 100)}% (hors charge).</Text>
+          </View>
+          <Switch value={alertOn} onValueChange={toggleAlert} trackColor={{ true: GOLD, false: '#28423a' }} thumbColor="#fff" />
         </View>
 
         <Text style={s.footer}>Lecture des capteurs locaux uniquement — aucun accès réseau sortant. هلال</Text>
@@ -159,5 +198,12 @@ const s = StyleSheet.create({
   info: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: 'rgba(255,255,255,0.06)' },
   infoLabel: { color: '#9bb3a8', fontSize: 14 },
   infoValue: { color: '#fff', fontSize: 14, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  alertRow: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 20, padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(201,162,75,0.18)',
+  },
+  alertLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  alertSub: { color: '#9bb3a8', fontSize: 12, marginTop: 4, lineHeight: 16 },
   footer: { color: '#5e7268', fontSize: 11, marginTop: 30, textAlign: 'center', lineHeight: 16 },
 });
