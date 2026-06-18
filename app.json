@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "scheme": "hilal",
     "runtimeVersion": {
       "policy": "appVersion"
@@ -14,9 +14,11 @@
       "url": "https://u.expo.dev/24429564-7133-49de-b733-0acbe4c727e1"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sadikihicham.hilal"
     },
     "android": {
+      "package": "com.sadikihicham.hilal",
       "adaptiveIcon": {
         "backgroundColor": "#0E1A16",
         "foregroundImage": "./assets/icon-foreground.png"
