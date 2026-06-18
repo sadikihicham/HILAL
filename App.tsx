@@ -12,25 +12,36 @@ configureNotifications();
 
 type Tab = 'prayer' | 'qibla' | 'settings';
 
+const METHOD_KEY = 'calc.method';
+
 export default function App() {
   const { coords, city, error } = useLocation();
   const [tab, setTab] = useState<Tab>('prayer');
+  const [method, setMethod] = useState('UmmAlQura');
 
-  // Reprogramme les rappels à l'ouverture si activés (les heures changent chaque jour).
+  useEffect(() => { AsyncStorage.getItem(METHOD_KEY).then((v) => { if (v) setMethod(v); }); }, []);
+
+  async function changeMethod(id: string) {
+    setMethod(id);
+    await AsyncStorage.setItem(METHOD_KEY, id);
+  }
+
+  // Reprogramme les rappels à l'ouverture / au changement de méthode (les heures
+  // changent chaque jour et selon la méthode).
   useEffect(() => {
     if (!coords) return;
     AsyncStorage.getItem(NOTIF_KEY).then((v) => {
-      if (v === '1') schedulePrayerNotifications(coords.lat, coords.lng);
+      if (v === '1') schedulePrayerNotifications(coords.lat, coords.lng, method);
     });
-  }, [coords]);
+  }, [coords, method]);
 
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
       <View style={styles.content}>
-        {tab === 'prayer' && <PrayerView coords={coords} city={city} error={error} />}
+        {tab === 'prayer' && <PrayerView coords={coords} city={city} error={error} method={method} />}
         {tab === 'qibla' && <QiblaView coords={coords} error={error} />}
-        {tab === 'settings' && <SettingsView coords={coords} />}
+        {tab === 'settings' && <SettingsView coords={coords} method={method} onChangeMethod={changeMethod} />}
       </View>
       <View style={styles.tabbar}>
         <TabButton label="Prières" icon="🕌" active={tab === 'prayer'} onPress={() => setTab('prayer')} />

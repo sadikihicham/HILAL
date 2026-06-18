@@ -8,8 +8,8 @@ import {
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export default function PrayerView({
-  coords, city, error,
-}: { coords: Coords | null; city: string | null; error: string | null }) {
+  coords, city, error, method,
+}: { coords: Coords | null; city: string | null; error: string | null; method: string }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -17,9 +17,9 @@ export default function PrayerView({
   }, []);
 
   const data = useMemo(
-    () => (coords ? computeTimes(coords.lat, coords.lng) : null),
+    () => (coords ? computeTimes(coords.lat, coords.lng, method) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [coords, now.getMinutes()],
+    [coords, method, now.getMinutes()],
   );
   const hijri = toHijri(now);
 

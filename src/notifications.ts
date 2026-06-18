@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
-import { CalculationMethod, Coordinates, Prayer, PrayerTimes } from 'adhan';
+import { Coordinates, Prayer, PrayerTimes } from 'adhan';
+import { methodById } from './islamic';
 
 /// Affiche les notifications même app au premier plan.
 export function configureNotifications() {
@@ -30,10 +31,12 @@ const SCHEDULE: { key: (typeof Prayer)[keyof typeof Prayer]; fr: string; ar: str
 
 /// Reprogramme les rappels : annule tout, puis planifie les prières des
 /// `days` prochains jours (notifications locales ponctuelles, par date).
-export async function schedulePrayerNotifications(lat: number, lng: number, days = 4): Promise<number> {
+export async function schedulePrayerNotifications(
+  lat: number, lng: number, methodId = 'UmmAlQura', days = 4,
+): Promise<number> {
   await Notifications.cancelAllScheduledNotificationsAsync();
   const coords = new Coordinates(lat, lng);
-  const params = CalculationMethod.UmmAlQura();
+  const params = methodById(methodId);
   const now = Date.now();
   let count = 0;
 

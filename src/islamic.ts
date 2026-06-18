@@ -47,11 +47,32 @@ export const PRAYERS: { key: PrayerName; fr: string; ar: string }[] = [
 export const fmtTime = (d: Date) =>
   d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
+// ---- Méthodes de calcul ----------------------------------------------------
+export const METHODS: { id: string; label: string; make: () => ReturnType<typeof CalculationMethod.UmmAlQura> }[] = [
+  { id: 'UmmAlQura', label: 'Umm al-Qura (Golfe)', make: () => CalculationMethod.UmmAlQura() },
+  { id: 'Dubai', label: 'Dubaï (EAU)', make: () => CalculationMethod.Dubai() },
+  { id: 'Qatar', label: 'Qatar', make: () => CalculationMethod.Qatar() },
+  { id: 'Kuwait', label: 'Koweït', make: () => CalculationMethod.Kuwait() },
+  { id: 'MuslimWorldLeague', label: 'Ligue islamique mondiale', make: () => CalculationMethod.MuslimWorldLeague() },
+  { id: 'Egyptian', label: 'Égypte', make: () => CalculationMethod.Egyptian() },
+  { id: 'Karachi', label: 'Karachi', make: () => CalculationMethod.Karachi() },
+  { id: 'NorthAmerica', label: 'Amérique du Nord (ISNA)', make: () => CalculationMethod.NorthAmerica() },
+  { id: 'Turkey', label: 'Turquie', make: () => CalculationMethod.Turkey() },
+  { id: 'Tehran', label: 'Téhéran', make: () => CalculationMethod.Tehran() },
+];
+
+export function methodById(id: string) {
+  return (METHODS.find((m) => m.id === id) ?? METHODS[0]).make();
+}
+
+export function methodLabel(id: string) {
+  return (METHODS.find((m) => m.id === id) ?? METHODS[0]).label;
+}
+
 /// Calcule les prières du jour + prochaine + Qibla pour des coordonnées.
-export function computeTimes(lat: number, lng: number) {
+export function computeTimes(lat: number, lng: number, methodId = 'UmmAlQura') {
   const c = new Coordinates(lat, lng);
-  const params = CalculationMethod.UmmAlQura();   // standard du Golfe
-  const times = new PrayerTimes(c, new Date(), params);
+  const times = new PrayerTimes(c, new Date(), methodById(methodId));
   const next = times.nextPrayer();
   const nextTime = next !== Prayer.None ? times.timeForPrayer(next) : null;
   return { times, next, nextTime, qibla: Qibla(c) };
