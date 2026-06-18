@@ -7,6 +7,10 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "hilal",
+    "runtimeVersion": { "policy": "appVersion" },
+    "updates": {
+      "url": "https://u.expo.dev/24429564-7133-49de-b733-0acbe4c727e1"
+    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
