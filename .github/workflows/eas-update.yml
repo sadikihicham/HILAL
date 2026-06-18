@@ -38,4 +38,6 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Publish update
-        run: eas update --branch preview --message "${{ github.event.head_commit.message }}" --non-interactive
+        # Fallback sur le SHA : head_commit.message est vide en declenchement
+        # manuel (workflow_dispatch), ce qui ferait echouer `eas update`.
+        run: eas update --branch preview --message "${{ github.event.head_commit.message || github.sha }}" --non-interactive
