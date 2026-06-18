@@ -1,27 +1,41 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StatusBar, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocation } from './src/useLocation';
 import { GOLD, GREEN } from './src/islamic';
+import { configureNotifications, schedulePrayerNotifications } from './src/notifications';
 import PrayerView from './src/PrayerView';
 import QiblaView from './src/QiblaView';
+import SettingsView, { NOTIF_KEY } from './src/SettingsView';
 
-type Tab = 'prayer' | 'qibla';
+configureNotifications();
+
+type Tab = 'prayer' | 'qibla' | 'settings';
 
 export default function App() {
   const { coords, city, error } = useLocation();
   const [tab, setTab] = useState<Tab>('prayer');
 
+  // Reprogramme les rappels à l'ouverture si activés (les heures changent chaque jour).
+  useEffect(() => {
+    if (!coords) return;
+    AsyncStorage.getItem(NOTIF_KEY).then((v) => {
+      if (v === '1') schedulePrayerNotifications(coords.lat, coords.lng);
+    });
+  }, [coords]);
+
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
       <View style={styles.content}>
-        {tab === 'prayer'
-          ? <PrayerView coords={coords} city={city} error={error} />
-          : <QiblaView coords={coords} error={error} />}
+        {tab === 'prayer' && <PrayerView coords={coords} city={city} error={error} />}
+        {tab === 'qibla' && <QiblaView coords={coords} error={error} />}
+        {tab === 'settings' && <SettingsView coords={coords} />}
       </View>
       <View style={styles.tabbar}>
         <TabButton label="Prières" icon="🕌" active={tab === 'prayer'} onPress={() => setTab('prayer')} />
         <TabButton label="Qibla" icon="🧭" active={tab === 'qibla'} onPress={() => setTab('qibla')} />
+        <TabButton label="Réglages" icon="⚙️" active={tab === 'settings'} onPress={() => setTab('settings')} />
       </View>
     </View>
   );
