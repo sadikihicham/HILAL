@@ -10,7 +10,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Porte bloquante : type-check TypeScript strict (seule porte du repo).
+  # Si elle échoue, l'OTA n'est PAS publiée (update a un `needs: typecheck`).
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+
   update:
+    needs: typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
