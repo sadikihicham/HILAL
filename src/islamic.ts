@@ -48,25 +48,21 @@ export const fmtTime = (d: Date) =>
   d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
 // ---- Méthodes de calcul ----------------------------------------------------
-export const METHODS: { id: string; label: string; make: () => ReturnType<typeof CalculationMethod.UmmAlQura> }[] = [
-  { id: 'UmmAlQura', label: 'Umm al-Qura (Golfe)', make: () => CalculationMethod.UmmAlQura() },
-  { id: 'Dubai', label: 'Dubaï (EAU)', make: () => CalculationMethod.Dubai() },
-  { id: 'Qatar', label: 'Qatar', make: () => CalculationMethod.Qatar() },
-  { id: 'Kuwait', label: 'Koweït', make: () => CalculationMethod.Kuwait() },
-  { id: 'MuslimWorldLeague', label: 'Ligue islamique mondiale', make: () => CalculationMethod.MuslimWorldLeague() },
-  { id: 'Egyptian', label: 'Égypte', make: () => CalculationMethod.Egyptian() },
-  { id: 'Karachi', label: 'Karachi', make: () => CalculationMethod.Karachi() },
-  { id: 'NorthAmerica', label: 'Amérique du Nord (ISNA)', make: () => CalculationMethod.NorthAmerica() },
-  { id: 'Turkey', label: 'Turquie', make: () => CalculationMethod.Turkey() },
-  { id: 'Tehran', label: 'Téhéran', make: () => CalculationMethod.Tehran() },
+export const METHODS: { id: string; label: string; labelAr: string; make: () => ReturnType<typeof CalculationMethod.UmmAlQura> }[] = [
+  { id: 'UmmAlQura', label: 'Umm al-Qura (Golfe)', labelAr: 'أم القرى (الخليج)', make: () => CalculationMethod.UmmAlQura() },
+  { id: 'Dubai', label: 'Dubaï (EAU)', labelAr: 'دبي (الإمارات)', make: () => CalculationMethod.Dubai() },
+  { id: 'Qatar', label: 'Qatar', labelAr: 'قطر', make: () => CalculationMethod.Qatar() },
+  { id: 'Kuwait', label: 'Koweït', labelAr: 'الكويت', make: () => CalculationMethod.Kuwait() },
+  { id: 'MuslimWorldLeague', label: 'Ligue islamique mondiale', labelAr: 'رابطة العالم الإسلامي', make: () => CalculationMethod.MuslimWorldLeague() },
+  { id: 'Egyptian', label: 'Égypte', labelAr: 'مصر', make: () => CalculationMethod.Egyptian() },
+  { id: 'Karachi', label: 'Karachi', labelAr: 'كراتشي', make: () => CalculationMethod.Karachi() },
+  { id: 'NorthAmerica', label: 'Amérique du Nord (ISNA)', labelAr: 'أمريكا الشمالية', make: () => CalculationMethod.NorthAmerica() },
+  { id: 'Turkey', label: 'Turquie', labelAr: 'تركيا', make: () => CalculationMethod.Turkey() },
+  { id: 'Tehran', label: 'Téhéran', labelAr: 'طهران', make: () => CalculationMethod.Tehran() },
 ];
 
 export function methodById(id: string) {
   return (METHODS.find((m) => m.id === id) ?? METHODS[0]).make();
-}
-
-export function methodLabel(id: string) {
-  return (METHODS.find((m) => m.id === id) ?? METHODS[0]).label;
 }
 
 /// Calcule les prières du jour + prochaine + Qibla pour des coordonnées.

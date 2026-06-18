@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Coords } from './useLocation';
-import {
-  computeTimes, fmtTime, GOLD, HIJRI_MONTHS, PRAYERS, toHijri,
-} from './islamic';
+import { computeTimes, fmtTime, GOLD, PRAYERS, toHijri } from './islamic';
+import { dateLocale, hijriMonth, isRTL, Lang, t } from './i18n';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export default function PrayerView({
-  coords, city, error, method,
-}: { coords: Coords | null; city: string | null; error: string | null; method: string }) {
+  coords, city, error, method, lang,
+}: { coords: Coords | null; city: string | null; error: string | null; method: string; lang: Lang }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -22,6 +21,11 @@ export default function PrayerView({
     [coords, method, now.getMinutes()],
   );
   const hijri = toHijri(now);
+  const rtl = isRTL(lang);
+  const pname = (key: (typeof PRAYERS)[number]['key']) => {
+    const p = PRAYERS.find((x) => x.key === key);
+    return { main: lang === 'ar' ? p?.ar : p?.fr, sub: lang === 'ar' ? p?.fr : p?.ar };
+  };
 
   const countdown = useMemo(() => {
     if (!data?.nextTime) return null;
@@ -34,46 +38,46 @@ export default function PrayerView({
   return (
     <ScrollView contentContainerStyle={styles.scroll}>
       <Text style={styles.brand}>🌙 HILAL</Text>
-      <Text style={styles.hijri}>{hijri.day} {HIJRI_MONTHS[hijri.month - 1]} {hijri.year} H</Text>
+      <Text style={styles.hijri}>
+        {hijri.day} {hijriMonth(hijri.month - 1, lang)} {hijri.year} {lang === 'ar' ? 'هـ' : 'H'}
+      </Text>
       <Text style={styles.greg}>
-        {now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        {now.toLocaleDateString(dateLocale(lang), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
       </Text>
       {city ? <Text style={styles.city}>📍 {city}</Text>
         : coords ? <Text style={styles.city}>📍 {coords.lat.toFixed(2)}, {coords.lng.toFixed(2)}</Text> : null}
 
       {error && <Text style={styles.error}>{error}</Text>}
       {!data && !error && (
-        <View style={styles.loading}><ActivityIndicator color={GOLD} /><Text style={styles.loadingTxt}>Localisation…</Text></View>
+        <View style={styles.loading}><ActivityIndicator color={GOLD} /><Text style={styles.loadingTxt}>{t('locating', lang)}</Text></View>
       )}
 
       {data && (
         <>
           <View style={styles.nextCard}>
-            <Text style={styles.nextLabel}>Prochaine prière</Text>
-            <Text style={styles.nextName}>
-              {PRAYERS.find((p) => p.key === data.next)?.fr ?? '—'}{'  '}
-              <Text style={styles.nextAr}>{PRAYERS.find((p) => p.key === data.next)?.ar ?? ''}</Text>
-            </Text>
+            <Text style={styles.nextLabel}>{t('next', lang)}</Text>
+            <Text style={styles.nextName}>{pname(data.next).main ?? '—'}</Text>
             <Text style={styles.countdown}>{countdown ?? '—'}</Text>
-            {data.nextTime && <Text style={styles.nextAt}>à {fmtTime(data.nextTime)}</Text>}
+            {data.nextTime && <Text style={styles.nextAt}>{t('at', lang)} {fmtTime(data.nextTime)}</Text>}
           </View>
 
           <View style={styles.list}>
             {PRAYERS.map((p) => {
-              const t = data.times.timeForPrayer(p.key);
+              const t2 = data.times.timeForPrayer(p.key);
               const isNext = p.key === data.next;
+              const nm = pname(p.key);
               return (
-                <View key={p.fr} style={[styles.row, isNext && styles.rowActive]}>
-                  <Text style={[styles.rowName, isNext && styles.rowNameActive]}>{p.fr}</Text>
-                  <Text style={styles.rowAr}>{p.ar}</Text>
-                  <Text style={[styles.rowTime, isNext && styles.rowNameActive]}>{t ? fmtTime(t) : '—'}</Text>
+                <View key={p.fr} style={[styles.row, { flexDirection: rtl ? 'row-reverse' : 'row' }, isNext && styles.rowActive]}>
+                  <Text style={[styles.rowName, isNext && styles.rowNameActive]}>{nm.main}</Text>
+                  <Text style={styles.rowAr}>{nm.sub}</Text>
+                  <Text style={[styles.rowTime, isNext && styles.rowNameActive]}>{t2 ? fmtTime(t2) : '—'}</Text>
                 </View>
               );
             })}
           </View>
         </>
       )}
-      <Text style={styles.footer}>Heures calculées localement (Umm al-Qura) · هلال</Text>
+      <Text style={styles.footer}>{t('prayerFooter', lang)}</Text>
     </ScrollView>
   );
 }
@@ -92,16 +96,15 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(201,162,75,0.4)', borderWidth: 1, borderRadius: 18, padding: 20, alignItems: 'center',
   },
   nextLabel: { color: GOLD, fontSize: 13, letterSpacing: 1, textTransform: 'uppercase' },
-  nextName: { color: '#fff', fontSize: 24, fontWeight: '700', marginTop: 6 },
-  nextAr: { color: GOLD, fontSize: 22 },
+  nextName: { color: '#fff', fontSize: 26, fontWeight: '700', marginTop: 6 },
   countdown: { color: '#fff', fontSize: 38, fontWeight: '300', marginTop: 8, fontVariant: ['tabular-nums'] },
   nextAt: { color: '#9FC3B4', marginTop: 2 },
   list: { width: '100%', marginTop: 22, gap: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12 },
+  row: { alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 12 },
   rowActive: { backgroundColor: 'rgba(201,162,75,0.16)' },
   rowName: { color: '#e8f1ec', fontSize: 16, flex: 1 },
   rowNameActive: { color: '#fff', fontWeight: '700' },
-  rowAr: { color: '#9FC3B4', fontSize: 16, marginRight: 16 },
+  rowAr: { color: '#9FC3B4', fontSize: 16, marginHorizontal: 16 },
   rowTime: { color: '#e8f1ec', fontSize: 16, fontVariant: ['tabular-nums'] },
   footer: { color: '#6f9486', fontSize: 11, marginTop: 30, textAlign: 'center' },
 });

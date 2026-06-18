@@ -4,10 +4,11 @@ import * as Location from 'expo-location';
 import { Coordinates, Qibla } from 'adhan';
 import { Coords } from './useLocation';
 import { GOLD } from './islamic';
+import { Lang, t } from './i18n';
 
 const SIZE = 250;
 
-export default function QiblaView({ coords, error }: { coords: Coords | null; error: string | null }) {
+export default function QiblaView({ coords, error, lang }: { coords: Coords | null; error: string | null; lang: Lang }) {
   const [heading, setHeading] = useState(0);
 
   useEffect(() => {
@@ -24,7 +25,7 @@ export default function QiblaView({ coords, error }: { coords: Coords | null; er
   }, []);
 
   if (error) return <View style={styles.center}><Text style={styles.error}>{error}</Text></View>;
-  if (!coords) return <View style={styles.center}><Text style={styles.loading}>Localisation…</Text></View>;
+  if (!coords) return <View style={styles.center}><Text style={styles.loading}>{t('locating', lang)}</Text></View>;
 
   const qibla = Qibla(new Coordinates(coords.lat, coords.lng));
   const angle = qibla - heading;                       // rotation de l'aiguille
@@ -34,8 +35,8 @@ export default function QiblaView({ coords, error }: { coords: Coords | null; er
 
   return (
     <View style={styles.wrap}>
-      <Text style={styles.title}>🧭 Qibla</Text>
-      <Text style={styles.sub}>{Math.round(qibla)}° depuis le Nord · cap {Math.round(heading)}°</Text>
+      <Text style={styles.title}>{t('qiblaTitle', lang)}</Text>
+      <Text style={styles.sub}>{Math.round(qibla)}° {t('fromNorth', lang)} · {t('heading', lang)} {Math.round(heading)}°</Text>
 
       <View style={[styles.compass, aligned && styles.compassAligned]}>
         <Text style={[styles.mark, styles.n]}>N</Text>
@@ -50,9 +51,9 @@ export default function QiblaView({ coords, error }: { coords: Coords | null; er
       </View>
 
       <Text style={[styles.status, aligned && styles.statusAligned]}>
-        {aligned ? '✓ Aligné vers la Qibla' : 'Tournez jusqu’à amener 🕋 en haut'}
+        {aligned ? t('aligned', lang) : t('turnToAlign', lang)}
       </Text>
-      <Text style={styles.foot}>Boussole magnétique — éloignez les objets métalliques et calibrez en bougeant le téléphone en 8.</Text>
+      <Text style={styles.foot}>{t('compassHint', lang)}</Text>
     </View>
   );
 }
