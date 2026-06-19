@@ -1,0 +1,84 @@
+name: Desktop · build macOS (.dmg)
+
+# Build manuel (workflow_dispatch) ou sur tag `desktop-vX.Y.Z` (déclenche aussi le build Windows).
+# Produit un .app + .dmg UNIVERSEL (Intel + Apple Silicon) en artefact.
+# Signature Developer ID + notarisation : automatiques SI les secrets Apple sont
+# configurés (voir desktop/README.md) ; sinon build NON signé (test uniquement).
+# Ne se déclenche PAS sur push master (n'interfère pas avec l'OTA mobile).
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust (cibles Intel + Apple Silicon)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install JS deps
+        run: npm install
+
+      - name: Tests (logique pure)
+        run: npm test
+
+      - name: Garde anti-réseau (invariant zéro réseau sortant)
+        shell: bash
+        run: |
+          if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
+            echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src"
+
+      # Détecte si la signature est possible (secret certificat présent).
+      - name: Détecte la configuration de signature
+        id: cfg
+        run: echo "sign=${{ secrets.APPLE_CERTIFICATE != '' }}" >> "$GITHUB_OUTPUT"
+
+      # Cas SIGNÉ : Tauri importe le certificat (via APPLE_CERTIFICATE), signe et
+      # notarise (via APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID).
+      - name: Build signé + notarisé (.app + .dmg universel)
+        if: steps.cfg.outputs.sign == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg
+
+      # Cas NON SIGNÉ : aucune variable Apple dans l'environnement -> Tauri ne tente
+      # aucun import de certificat (build de test, Gatekeeper bloquera la distribution).
+      - name: Build non signé (.app + .dmg universel)
+        if: steps.cfg.outputs.sign != 'true'
+        run: npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg
+
+      - name: Upload artefacts macOS
+        uses: actions/upload-artifact@v4
+        with:
+          name: hilal-desktop-macos
+          path: |
+            desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: error

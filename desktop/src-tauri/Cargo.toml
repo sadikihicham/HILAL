@@ -1,0 +1,24 @@
+[package]
+name = "hilal-desktop"
+version = "1.0.0"
+description = "HILAL Desktop — moniteur matériel PC, 100% local"
+authors = ["Hicham Sadiki"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.39"
+# Crate de batterie multiplateforme ; aliasé en `battery` pour un `use` stable.
+battery = { package = "starship-battery", version = "0.11" }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
