@@ -1,0 +1,61 @@
+name: Desktop · build Windows (.exe)
+
+# Build manuel (workflow_dispatch) ou sur tag `desktop-vX.Y.Z`.
+# IMPORTANT : ne se déclenche PAS sur push master — n'interfère donc pas avec
+# eas-update.yml (OTA mobile). Produit l'installeur NSIS (.exe) en artefact.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install JS deps
+        run: npm install
+
+      - name: Tests (logique pure)
+        run: npm test
+
+      - name: Garde anti-réseau (invariant zéro réseau sortant)
+        shell: bash
+        run: |
+          if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
+            echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src"
+
+      # `tauri build` lance `beforeBuildCommand` (npm run build = tsc + vite),
+      # puis compile le binaire Rust et l'installeur NSIS.
+      - name: Build (.exe + installeur NSIS)
+        run: npm run tauri build
+
+      - name: Upload artefacts Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: hilal-desktop-windows
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/hilal-desktop.exe
+          if-no-files-found: error
