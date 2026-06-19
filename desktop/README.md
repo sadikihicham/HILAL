@@ -1,8 +1,9 @@
-# HILAL Desktop — moniteur matériel PC (Windows)
+# HILAL Desktop — moniteur matériel PC (Windows + macOS)
 
 Version **desktop** de HILAL : un moniteur **matériel en lecture seule, 100% local**
-pour Windows (et macOS/Linux en dev). C'est la déclinaison « PC » de l'app mobile
-HILAL — l'esprit *« macOS State »* appliqué au poste de travail.
+pour **Windows et macOS** (Linux en dev). C'est la déclinaison « PC » de l'app mobile
+HILAL — l'esprit *« macOS State »* appliqué au poste de travail. Un seul code Tauri,
+deux cibles natives.
 
 > **Invariant produit conservé : zéro réseau sortant.** L'app ne fait que lire des
 > compteurs systèmes locaux (`sysinfo`, `starship-battery`). Aucun `fetch`, aucune
@@ -28,6 +29,8 @@ architecture, nombre de cœurs, uptime. Thème sombre/clair, trilingue **FR/EN/A
 
 - **Node 20+** et **Rust stable** (`rustup`, `cargo`).
 - Windows : **WebView2** (préinstallé sur Windows 10/11).
+- macOS : **WKWebView** (intégré) ; pour un binaire universel : `rustup target add
+  aarch64-apple-darwin x86_64-apple-darwin`.
 
 ## Développement
 
@@ -51,18 +54,46 @@ npm run build         # tsc --noEmit + vite build (porte frontend)
 cargo check --manifest-path src-tauri/Cargo.toml   # porte backend
 ```
 
-## Produire le .exe Windows
+## Produire les binaires (CI, recommandé)
 
-Le `.exe` **ne se compile pas depuis macOS**. Deux voies :
+Un **tag `desktop-vX.Y.Z`** (ou *Run workflow* manuel) déclenche **les deux** builds en
+parallèle, chacun sur son OS natif (un `.exe` ne se compile pas depuis macOS, ni l'inverse) :
 
-1. **GitHub Actions (recommandé)** — workflow `.github/workflows/desktop-windows.yml`
-   sur runner `windows-latest`. Déclenchement **manuel** (onglet Actions →
-   *Run workflow*) ou via un tag `desktop-vX.Y.Z`. L'installeur NSIS (`.exe`) est
-   publié en **artefact**. ⚠️ Ce workflow **ne se déclenche pas** sur push `master`
-   (il n'interfère donc pas avec l'OTA mobile `eas-update.yml`).
-2. **Machine Windows** — `npm install && npm run icon && npm run tauri:build` ;
-   sorties dans `src-tauri/target/release/` (binaire `hilal-desktop.exe`) et
-   `src-tauri/target/release/bundle/nsis/` (installeur).
+| Workflow | Runner | Artefact |
+|---|---|---|
+| `desktop-windows.yml` | `windows-latest` | `hilal-desktop-windows` — installeur **NSIS (.exe)** |
+| `desktop-macos.yml` | `macos-latest` | `hilal-desktop-macos` — **.dmg + .app universels** (Intel + Apple Silicon) |
+
+⚠️ Ces workflows **ne se déclenchent pas** sur push `master` (pas d'interférence avec
+l'OTA mobile `eas-update.yml`).
+
+Build local (sur la machine correspondante) :
+```bash
+npm install && npm run icon
+npm run tauri:build -- --bundles nsis                                  # Windows
+npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg   # macOS universel
+```
+
+## Publier la version macOS (signature + notarisation)
+
+Un `.dmg` **non signé** est bloqué par Gatekeeper (« développeur non identifié »). Pour
+**publier**, il faut un **compte Apple Developer** (99 $/an) et configurer ces *secrets*
+GitHub (le workflow `desktop-macos.yml` signe + notarise automatiquement dès qu'ils sont
+présents — sinon il produit un build non signé pour test) :
+
+| Secret | Description |
+|---|---|
+| `APPLE_CERTIFICATE` | Certificat **Developer ID Application** exporté en `.p12`, encodé base64 |
+| `APPLE_CERTIFICATE_PASSWORD` | Mot de passe du `.p12` |
+| `APPLE_SIGNING_IDENTITY` | Ex. `Developer ID Application: Nom (TEAMID)` |
+| `APPLE_ID` | Identifiant Apple (e-mail) |
+| `APPLE_PASSWORD` | **Mot de passe d'app dédié** (appleid.apple.com), pas le mot de passe principal |
+| `APPLE_TEAM_ID` | Identifiant d'équipe Apple Developer |
+
+> Côté Windows, signer l'`.exe` (Authenticode) nécessite un certificat de signature de
+> code (EV/OV) — voir la doc Tauri `windows.signCommand` ; non bloquant pour distribuer.
+
+Test local d'un `.dmg` non signé : clic droit → *Ouvrir* (contourne Gatekeeper une fois).
 
 ## Réutilisation depuis l'app mobile
 

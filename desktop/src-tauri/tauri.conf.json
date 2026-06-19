@@ -27,7 +27,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Moniteur matériel local",
+    "longDescription": "HILAL Desktop — moniteur matériel PC en lecture seule, 100% local, zéro réseau sortant.",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

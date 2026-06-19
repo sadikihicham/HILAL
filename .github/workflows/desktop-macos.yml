@@ -1,0 +1,88 @@
+name: Desktop · build macOS (.dmg)
+
+# Build manuel (workflow_dispatch) ou sur tag `desktop-vX.Y.Z` (déclenche aussi le build Windows).
+# Produit un .app + .dmg UNIVERSEL (Intel + Apple Silicon) en artefact.
+# Signature Developer ID + notarisation : automatiques SI les secrets Apple sont
+# configurés (voir desktop/README.md) ; sinon build non signé (test uniquement).
+# Ne se déclenche PAS sur push master (n'interfère pas avec l'OTA mobile).
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      # Renseignés uniquement si les secrets existent ; sinon vides -> build non signé.
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust (cibles Intel + Apple Silicon)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install JS deps
+        run: npm install
+
+      - name: Tests (logique pure)
+        run: npm test
+
+      - name: Garde anti-réseau (invariant zéro réseau sortant)
+        shell: bash
+        run: |
+          if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
+            echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src"
+
+      # Importe le certificat Developer ID dans un trousseau temporaire UNIQUEMENT
+      # si le secret est présent (sinon le build reste non signé, sans échec).
+      - name: Import du certificat Apple (si configuré)
+        if: ${{ env.APPLE_CERTIFICATE != '' }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PWD="$(openssl rand -base64 24)"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PWD" "$KEYCHAIN" >/dev/null
+
+      # `tauri build` lance beforeBuildCommand (tsc + vite), compile un binaire
+      # universel, signe + notarise si les secrets Apple sont présents.
+      - name: Build (.app + .dmg universel)
+        run: npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg
+
+      - name: Upload artefacts macOS
+        uses: actions/upload-artifact@v4
+        with:
+          name: hilal-desktop-macos
+          path: |
+            desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: error

@@ -48,8 +48,9 @@ jobs:
 
       # `tauri build` lance `beforeBuildCommand` (npm run build = tsc + vite),
       # puis compile le binaire Rust et l'installeur NSIS.
+      # --bundles nsis : on fige le bundle (la config `targets` vaut "all").
       - name: Build (.exe + installeur NSIS)
-        run: npm run tauri build
+        run: npm run tauri:build -- --bundles nsis
 
       - name: Upload artefacts Windows
         uses: actions/upload-artifact@v4
