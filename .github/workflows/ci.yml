@@ -1,0 +1,23 @@
+name: CI
+
+# Portes bloquantes (type-check TypeScript strict + tests Vitest) sur CHAQUE PR.
+# Sert de "required status check" à la branch protection de master : aucune PR ne
+# peut être mergée tant que ce job n'est pas vert. Ne publie RIEN — l'OTA reste
+# gérée exclusivement par `eas-update.yml` sur push master.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test
