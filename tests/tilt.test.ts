@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tiltAngle, smooth, clampOffset } from '../src/tilt';
+import { tiltAngle, smooth, clampOffset, levelHapticStep, LEVEL_IN, LEVEL_OUT } from '../src/tilt';
 
 describe('tiltAngle', () => {
   it('0° quand à plat (|z| = 1)', () => {
@@ -35,5 +35,34 @@ describe('clampOffset', () => {
     expect(clampOffset(100, 46)).toBe(46);
     expect(clampOffset(-100, 46)).toBe(-46);
     expect(clampOffset(20, 46)).toBe(20);
+  });
+});
+
+describe('levelHapticStep — hystérésis retour haptique « à niveau »', () => {
+  it('déclenche en passant sous LEVEL_IN', () => {
+    expect(levelHapticStep(false, 1)).toEqual({ atLevel: true, haptic: true });
+  });
+
+  it('ne re-déclenche pas tant qu\'on reste à niveau (anti-rebond)', () => {
+    expect(levelHapticStep(true, 1)).toEqual({ atLevel: true, haptic: false });
+  });
+
+  it('ne déclenche pas pile au seuil LEVEL_IN (strictement inférieur)', () => {
+    expect(levelHapticStep(false, LEVEL_IN)).toEqual({ atLevel: false, haptic: false });
+  });
+
+  it('reste armé dans la zone morte [LEVEL_IN, LEVEL_OUT[ sans buzzer', () => {
+    expect(levelHapticStep(true, 4)).toEqual({ atLevel: true, haptic: false });
+  });
+
+  it('se ré-arme une fois au-delà de LEVEL_OUT, puis re-buzze au retour à niveau', () => {
+    let s = levelHapticStep(false, 1);          // buzz initial
+    expect(s.haptic).toBe(true);
+    s = levelHapticStep(s.atLevel, 4);          // zone morte → pas de re-buzz
+    expect(s).toEqual({ atLevel: true, haptic: false });
+    s = levelHapticStep(s.atLevel, LEVEL_OUT);  // ré-armement
+    expect(s.atLevel).toBe(false);
+    s = levelHapticStep(s.atLevel, 1);          // retour à niveau → re-buzz
+    expect(s).toEqual({ atLevel: true, haptic: true });
   });
 });
