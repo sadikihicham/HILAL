@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { getTheme, type Mode, type Theme } from '@shared/theme';
-import { fmtBytes, pct, loadColor } from '@shared/format';
+import { getTheme, type Mode, type Theme } from './lib/theme';
+import { fmtBytes, pct, loadColor } from './lib/format';
 import { t, LANGS, isRTL, type Lang } from './lib/i18n';
 import {
   fetchMetrics,

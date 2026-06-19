@@ -17,9 +17,10 @@ architecture, nombre de cœurs, uptime. Thème sombre/clair, trilingue **FR/EN/A
 
 ## Stack
 
-- **Frontend** : Vite + React 19 + TypeScript (DOM). Réutilise le **thème** et les
-  **helpers de formatage** de l'app mobile via l'alias `@shared` → `../src`
-  (`@shared/theme`, `@shared/format`, `@shared/i18n` — du TS pur, sans React Native).
+- **Frontend** : Vite + React 19 + TypeScript (DOM). Réplique l'UI/le thème de l'app
+  mobile (mêmes couleurs, jauges, i18n FR/EN/AR). Projet **100% autonome** : aucun
+  import hors de `desktop/` (les helpers `theme.ts`/`format.ts` sont des copies dans
+  `src/lib/`, voir ci-dessous).
 - **Backend** : Tauri 2 (Rust). Une seule commande `get_metrics` (voir
   `src-tauri/src/main.rs`) qui agrège `sysinfo` + `starship-battery`.
 
@@ -65,7 +66,11 @@ Le `.exe` **ne se compile pas depuis macOS**. Deux voies :
 
 ## Réutilisation depuis l'app mobile
 
-`@shared/theme` et `@shared/format` sont **importés** depuis `../src` (DRY). Modifier
-ces fichiers impacte mobile **et** desktop — et un push `master` déclenche alors une
-OTA mobile. L'`i18n` desktop est **séparée** (`src/lib/i18n.ts`) pour découpler les
-cycles de release (les chaînes PC n'ont pas de raison de déclencher une OTA mobile).
+Choix assumé : le desktop est **autonome** (pas d'import cross-dossier vers `../src`).
+Les modules purs `src/lib/theme.ts` et `src/lib/format.ts` sont des **copies** des
+fichiers mobiles homonymes, et `src/lib/i18n.ts` reprend le même schéma. Raisons :
+(1) **isolation de build CI** — le runner Windows n'installe que les deps `desktop/`,
+or un import vers `../src` ferait remonter au `tsconfig` racine (`extends expo`,
+absent en CI) → build cassé ; (2) **découplage des cycles de release** — éditer le
+desktop ne déclenche jamais d'OTA mobile. Contrepartie : garder les copies en phase
+avec le mobile en cas d'évolution du design (≈ 60 lignes, faible churn).

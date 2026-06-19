@@ -1,6 +1,6 @@
 // Logique pure du desktop (sans dépendance Tauri/DOM) — testable en isolation
 // sous Vitest, à l'image de `src/format.ts` côté mobile. Réutilise `fmtBytes`.
-import { fmtBytes } from '@shared/format';
+import { fmtBytes } from './format';
 
 // Débit (octets/s) -> "1.2 Mo/s". Borne les négatifs.
 export const fmtRate = (bytesPerSec: number) => `${fmtBytes(Math.max(0, bytesPerSec))}/s`;

@@ -1,10 +1,10 @@
-// i18n du moniteur PC. Réutilise le type `Lang`, la liste `LANGS` et `isRTL`
-// de l'app mobile HILAL (`@shared/i18n`) ; seules les chaînes sont propres au
-// desktop (clés CPU/swap/uptime… absentes du mobile). Garder les 3 langues de front.
-import { Lang, LANGS, isRTL } from '@shared/i18n';
-
-export { LANGS, isRTL };
-export type { Lang };
+// i18n du moniteur PC (autonome, ne dépend pas de l'app mobile). Mêmes 3 langues
+// FR/EN/AR + RTL ; seules les chaînes sont propres au desktop (clés CPU/swap/uptime…).
+export type Lang = 'fr' | 'en' | 'ar';
+export const LANGS: { id: Lang; label: string }[] = [
+  { id: 'fr', label: 'FR' }, { id: 'en', label: 'EN' }, { id: 'ar', label: 'ع' },
+];
+export const isRTL = (l: Lang) => l === 'ar';
 
 const S: Record<Lang, Record<string, string>> = {
   fr: {
