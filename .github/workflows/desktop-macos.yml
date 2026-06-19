@@ -3,7 +3,7 @@ name: Desktop · build macOS (.dmg)
 # Build manuel (workflow_dispatch) ou sur tag `desktop-vX.Y.Z` (déclenche aussi le build Windows).
 # Produit un .app + .dmg UNIVERSEL (Intel + Apple Silicon) en artefact.
 # Signature Developer ID + notarisation : automatiques SI les secrets Apple sont
-# configurés (voir desktop/README.md) ; sinon build non signé (test uniquement).
+# configurés (voir desktop/README.md) ; sinon build NON signé (test uniquement).
 # Ne se déclenche PAS sur push master (n'interfère pas avec l'OTA mobile).
 on:
   workflow_dispatch:
@@ -17,14 +17,6 @@ jobs:
     defaults:
       run:
         working-directory: desktop
-    env:
-      # Renseignés uniquement si les secrets existent ; sinon vides -> build non signé.
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,24 +50,28 @@ jobs:
           fi
           echo "OK : aucun appel réseau dans desktop/src"
 
-      # Importe le certificat Developer ID dans un trousseau temporaire UNIQUEMENT
-      # si le secret est présent (sinon le build reste non signé, sans échec).
-      - name: Import du certificat Apple (si configuré)
-        if: ${{ env.APPLE_CERTIFICATE != '' }}
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/app-signing.keychain-db"
-          KEYCHAIN_PWD="$(openssl rand -base64 24)"
-          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$RUNNER_TEMP/cert.p12"
-          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
-          security import "$RUNNER_TEMP/cert.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
-          security list-keychain -d user -s "$KEYCHAIN"
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PWD" "$KEYCHAIN" >/dev/null
+      # Détecte si la signature est possible (secret certificat présent).
+      - name: Détecte la configuration de signature
+        id: cfg
+        run: echo "sign=${{ secrets.APPLE_CERTIFICATE != '' }}" >> "$GITHUB_OUTPUT"
 
-      # `tauri build` lance beforeBuildCommand (tsc + vite), compile un binaire
-      # universel, signe + notarise si les secrets Apple sont présents.
-      - name: Build (.app + .dmg universel)
+      # Cas SIGNÉ : Tauri importe le certificat (via APPLE_CERTIFICATE), signe et
+      # notarise (via APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID).
+      - name: Build signé + notarisé (.app + .dmg universel)
+        if: steps.cfg.outputs.sign == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg
+
+      # Cas NON SIGNÉ : aucune variable Apple dans l'environnement -> Tauri ne tente
+      # aucun import de certificat (build de test, Gatekeeper bloquera la distribution).
+      - name: Build non signé (.app + .dmg universel)
+        if: steps.cfg.outputs.sign != 'true'
         run: npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg
 
       - name: Upload artefacts macOS
