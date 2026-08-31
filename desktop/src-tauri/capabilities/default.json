@@ -1,7 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capacité par défaut de la fenêtre principale (cœur Tauri uniquement, aucun plugin réseau).",
-  "windows": ["main"],
-  "permissions": ["core:default"]
+  "description": "Capacité par défaut de la fenêtre principale (cœur Tauri uniquement, aucun plugin réseau). Les commandes de fenêtre sont requises par la barre de titre personnalisée du HUD (decorations: false) : glissement, réduire, agrandir, fermer.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close"
+  ]
 }

@@ -1,5 +1,5 @@
-/* Reset minimal — le reste du style est porté par makeStyles(theme) dans App.tsx,
-   à l'image de la factory StyleSheet de l'app mobile HILAL. */
+/* Reset minimal + habillage HUD. Le reste du style est porté par makeStyles(theme,
+   accent) dans App.tsx, à l'image de la factory StyleSheet de l'app mobile HILAL. */
 * {
   box-sizing: border-box;
 }
@@ -8,21 +8,83 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  /* Fond transparent : laisse passer la vibrancy macOS (verre dépoli) déclarée
+     via windowEffects dans tauri.conf.json. Le voile teinté est porté par
+     `theme.shell` / `theme.shellActive` côté App.tsx. */
+  background: transparent;
 }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  /* Aucune police distante : la CSP interdit tout `connect-src` et l'invariant
+     produit HILAL est « zéro réseau sortant ». On empile donc des familles
+     déjà présentes sur la machine, du plus proche du design au repli système.
+     Chakra Petch / JetBrains Mono ne sont utilisées que si l'utilisateur les a
+     installées localement. */
+  --font-display: 'Chakra Petch', 'Bahnschrift', 'Avenir Next Condensed', 'Eurostile',
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo,
+    Consolas, 'DejaVu Sans Mono', monospace;
+  font-family: var(--font-display);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;
+  cursor: default;
 }
-/* Barre de défilement discrète, cohérente avec le thème sombre/clair. */
+button {
+  font-family: inherit;
+}
+
+/* Habillage HUD (repris du design) : balayage lent, témoin « direct » clignotant. */
+@keyframes hudScan {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(340%); }
+}
+@keyframes hudBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+/* Respecte le réglage système « réduire les animations » (accessibilité). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Barre de défilement discrète, neutre pour rester lisible en sombre ET en clair. */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(201, 162, 75, 0.35);
-  border-radius: 4px;
+  background: rgba(128, 140, 150, 0.4);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 140, 150, 0.6);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Survols du design (`style-hover`) : impossibles en style inline React, portés ici.
+   Les couleurs viennent de variables posées sur la racine par App.tsx (thème vivant). */
+.hud-hoverable {
+  transition: background 140ms ease, color 140ms ease;
+}
+.hud-hoverable:hover {
+  background: var(--hud-hover);
+  color: var(--hud-text);
+}
+.hud-primary {
+  transition: filter 140ms ease;
+}
+.hud-primary:hover {
+  filter: brightness(1.15);
+}
+.hud-row {
+  transition: background 140ms ease;
+}
+.hud-row:hover {
+  background: var(--hud-hover);
 }
