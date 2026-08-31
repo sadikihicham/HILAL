@@ -13,7 +13,7 @@ Ne pas présumer des signatures d'autres SDK (voir aussi `AGENTS.md`).
 ## Ce que c'est
 
 HILAL est un **moniteur d'appareil mobile** (iOS + Android), « version mobile de macOS State ».
-Il affiche l'état du matériel **en lecture seule, 100% local**.
+Il affiche l'état du matériel **en lecture seule, 100% local**. « Lecture seule » porte sur l'**état du système** : HILAL ne modifie aucun réglage, ne tue aucun process, n'écrit rien hors de ses propres préférences. Le seul effet sortant est le **retour haptique** local (vibration quand l'appareil se cale à plat) — un signal vers l'utilisateur, pas une mutation de l'appareil.
 
 - **Invariant produit : zéro réseau sortant.** Aucune télémétrie, aucun `fetch`, aucune analytics.
   Ne jamais introduire d'appel réseau — c'est la promesse du produit.
