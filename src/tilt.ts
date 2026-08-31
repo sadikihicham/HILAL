@@ -12,3 +12,22 @@ export const smooth = (prev: number, cur: number, alpha = 0.3) => prev * (1 - al
 
 /// Borne une valeur dans [-max, max] (position de la bulle).
 export const clampOffset = (value: number, max: number) => Math.max(-max, Math.min(max, value));
+
+export const LEVEL_IN = 2.5; // sous cet angle (°), l'appareil est « à niveau »
+export const LEVEL_OUT = 6;  // au-dessus, on ré-arme (zone morte = anti-rebond)
+
+/// Décision pure du retour haptique « à niveau », avec hystérésis (même logique
+/// que `lowBatteryStep`) : on déclenche une fois en passant sous LEVEL_IN, et on
+/// ne ré-arme qu'au-delà de LEVEL_OUT — évite le buzz en boucle autour du seuil.
+/// `prevAtLevel` = était-on déjà considéré à niveau (et pas encore ré-armé).
+export function levelHapticStep(
+  prevAtLevel: boolean,
+  angle: number,
+): { atLevel: boolean; haptic: boolean } {
+  let atLevel = prevAtLevel;
+  if (angle >= LEVEL_OUT) atLevel = false;
+  if (angle < LEVEL_IN && !atLevel) {
+    return { atLevel: true, haptic: true };
+  }
+  return { atLevel, haptic: false };
+}

@@ -31,9 +31,10 @@ npm test                    # Vitest : tests de logique pure (un seul : npx vite
 ```
 
 Pas d'ESLint. Les **deux portes locales** sont `npx tsc --noEmit` et `npm test`. Vitest ne couvre que
-la **logique pure** (`src/format.ts`, `src/battery.ts`) en environnement `node` — **pas** de composants
-React Native (importer `App.tsx` tirerait RN et casserait). Tout code testable doit donc être extrait
-dans un module pur, puis ré-importé par `App.tsx` (cf. `fmtBytes`/`lowBatteryStep`). Tests dans `tests/`.
+la **logique pure** (`src/format.ts`, `src/battery.ts`, `src/tilt.ts`) en environnement `node` — **pas**
+de composants React Native (importer `App.tsx` tirerait RN et casserait). Tout code testable doit donc
+être extrait dans un module pur, puis ré-importé par `App.tsx`/un hook (cf. `fmtBytes`/`lowBatteryStep`/
+`tiltAngle`). Tests dans `tests/` (découverte `tests/**/*.test.ts`, cf. `vitest.config.ts`).
 
 **EAS / déploiement :**
 ```bash
@@ -50,11 +51,12 @@ touchent jamais les utilisateurs prod. Canaux déclarés par profil dans `eas.js
 
 ## Architecture (le « big picture »)
 
-App mono-écran, ~420 lignes TS, hooks React uniquement (pas de Redux/Context/Zustand).
+App mono-écran, ~550 lignes TS, hooks React uniquement (pas de Redux/Context/Zustand).
 
 - `index.ts` → `registerRootComponent(App)`.
-- `App.tsx` (~230 l) : l'unique écran `Monitor`, dans `SafeAreaProvider` + `ScrollView` +
-  `RefreshControl` (pull-to-refresh). Sous-composants : `Gauge`, `Sparkline`, `MetricRow`, `InfoRow`.
+- `App.tsx` (~260 l) : l'unique écran `Monitor`, dans `SafeAreaProvider` + `ScrollView` +
+  `RefreshControl` (pull-to-refresh) ; inclut la carte **Niveau** (bulle à niveau pilotée par
+  `useTilt`). Sous-composants : `Gauge`, `Sparkline`, `MetricRow`, `InfoRow`.
   Styles via la factory `makeStyles(theme)` mémoïsée avec `useMemo` — pas de fichiers de style
   séparés, pas de CSS-in-JS, juste `StyleSheet.create`.
 - `src/useDeviceMetrics.ts` : **cœur du sampling capteurs.** Poll toutes les 3 s (lectures en
@@ -63,11 +65,19 @@ App mono-écran, ~420 lignes TS, hooks React uniquement (pas de Redux/Context/Zu
   `refresh()` pour le pull-to-refresh.
 - `src/notifications.ts` : alerte batterie faible **locale** (hystérésis : déclenche `<15%`, ré-arme
   à `≥20%`, jamais en charge).
+- `src/useTilt.ts` : **inclinaison via l'accéléromètre** (`expo-sensors`). Échantillonne à 80 ms,
+  lisse les valeurs (`smooth`), **pause en arrière-plan** via `AppState` (comme `useDeviceMetrics`),
+  expose `{ x, y, angle }` (position de la bulle + angle vs horizontale). La **logique pure
+  testable** est isolée dans `src/tilt.ts` (`tiltAngle`/`smooth`/`clampOffset`, plus `levelHapticStep`
+  : décision hystérésis du retour haptique « à niveau ») — même découpage que `fmtBytes`/
+  `lowBatteryStep` : le calcul dans un module pur, le hook/l'écran ne fait que brancher capteur+effet.
+  Le **retour tactile** (`expo-haptics`) se déclenche quand l'appareil se cale à plat (`<2.5°`).
 - `src/i18n.ts` : FR / EN / AR via `t(key, lang)` + `isRTL(lang)`. **FR par défaut.**
 - `src/theme.ts` : palettes dark/light via `getTheme(mode)`.
 
 **APIs Expo utilisées** : `expo-battery`, `expo-file-system`, `expo-network`, `expo-device`,
-`expo-brightness`, `expo-notifications`, `expo-status-bar`, plus `react-native-safe-area-context` et
+`expo-brightness`, `expo-notifications`, `expo-sensors` (accéléromètre), `expo-haptics` (retour
+tactile « à niveau »), `expo-status-bar`, plus `react-native-safe-area-context` et
 `@react-native-async-storage/async-storage`.
 
 **Persistance** : réglages stockés en `AsyncStorage` — clés `alert.lowbattery`, `app.lang`,
@@ -77,7 +87,8 @@ App mono-écran, ~420 lignes TS, hooks React uniquement (pas de Redux/Context/Zu
 
 Dans `src/useDeviceMetrics.ts` : ajouter l'appel Expo dans `refresh()` → étendre le type `Metrics`
 → initialiser l'état → puis rendre dans `App.tsx` via `MetricRow` (avec jauge) ou `InfoRow` (paire
-label/valeur).
+label/valeur). Toute logique de calcul non triviale va dans un **module pur** `src/*.ts` (avec son
+test sous `tests/`), le hook se contentant de brancher le capteur — cf. `useTilt.ts` + `tilt.ts`.
 
 ## Conventions
 

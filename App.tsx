@@ -5,8 +5,10 @@ import {
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Battery from 'expo-battery';
+import * as Haptics from 'expo-haptics';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
 import { useTilt } from './src/useTilt';
+import { levelHapticStep, LEVEL_IN } from './src/tilt';
 import { configureNotifications, notifyLowBattery, requestNotificationPermission } from './src/notifications';
 import { Lang, LANGS, isRTL, t } from './src/i18n';
 import { getTheme, Mode, Theme } from './src/theme';
@@ -79,6 +81,7 @@ function Monitor() {
   const [lang, setLang] = useState<Lang>('fr');
   const [mode, setMode] = useState<Mode>(system === 'light' ? 'light' : 'dark');
   const firedRef = useRef(false);
+  const atLevelRef = useRef(true); // true au départ : pas de buzz à l'ouverture
   const tilt = useTilt();
 
   const theme = getTheme(mode);
@@ -108,6 +111,13 @@ function Monitor() {
     firedRef.current = fired;
     if (notify) notifyLowBattery(b.level);
   }, [m.battery, alertOn]);
+
+  // Retour haptique local quand l'appareil se cale « à niveau » (hystérésis).
+  useEffect(() => {
+    const { atLevel, haptic } = levelHapticStep(atLevelRef.current, tilt.angle);
+    atLevelRef.current = atLevel;
+    if (haptic) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  }, [tilt.angle]);
 
   const onRefresh = async () => { setRefreshing(true); await refresh(); setRefreshing(false); };
   const usedStorage = m.storage ? m.storage.total - m.storage.free : 0;
@@ -184,15 +194,15 @@ function Monitor() {
           <View style={st.bubbleOuter}>
             <View style={st.bubbleCenter} />
             <View style={[st.bubble, {
-              backgroundColor: tilt.angle < 2.5 ? theme.gold : '#5fd3a0',
+              backgroundColor: tilt.angle < LEVEL_IN ? theme.gold : '#5fd3a0',
               transform: [
                 { translateX: Math.max(-46, Math.min(46, -tilt.x * 46)) },
                 { translateY: Math.max(-46, Math.min(46, tilt.y * 46)) },
               ],
             }]} />
           </View>
-          <Text style={[st.levelVal, tilt.angle < 2.5 && { color: theme.gold }]}>
-            {tilt.angle < 2.5 ? t('levelOk', lang) : `${Math.round(tilt.angle)}° ${t('tilt', lang)}`}
+          <Text style={[st.levelVal, tilt.angle < LEVEL_IN && { color: theme.gold }]}>
+            {tilt.angle < LEVEL_IN ? t('levelOk', lang) : `${Math.round(tilt.angle)}° ${t('tilt', lang)}`}
           </Text>
         </View>
 
