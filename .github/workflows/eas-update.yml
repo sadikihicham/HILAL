@@ -7,6 +7,19 @@ name: EAS Update
 on:
   push:
     branches: [master]
+    # Un push qui ne touche QUE ces chemins ne republie pas le bundle mobile :
+    # ils ne peuvent pas changer le JS embarqué par Expo.
+    #   - desktop/**  : l'app desktop Tauri est un produit séparé (binaires
+    #                   construits par desktop-windows.yml / desktop-macos.yml).
+    #   - .github/**  : modifier un workflow ne change pas le bundle. Sans cette
+    #                   ligne, toute PR qui touche à la CI et au desktop
+    #                   déclencherait quand même l'OTA, ce qui viderait de son sens
+    #                   l'exclusion de `desktop/**`.
+    # `paths-ignore` ne s'applique PAS à workflow_dispatch : le déclenchement
+    # manuel reste toujours disponible pour forcer une OTA.
+    paths-ignore:
+      - 'desktop/**'
+      - '.github/**'
   workflow_dispatch:
 
 jobs:
