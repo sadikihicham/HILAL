@@ -11,17 +11,53 @@ deux cibles natives.
 
 ## Ce que ça affiche
 
-CPU (charge globale + historique + par cœur), RAM, swap, disque (C:), réseau
-(débits ↓/↑), batterie (si portable), IP locale, nom de machine, OS/noyau,
-architecture, nombre de cœurs, uptime. Thème sombre/clair, trilingue **FR/EN/AR**
-(RTL pour l'arabe), bouton « copier l'état ».
+Interface **HUD « HILAL//MONITEUR »** (design *Mac Health Dashboard*) : barre de titre
+personnalisée, rail de navigation, verre dépoli + angles coupés, échantillonnage **1 Hz**.
+
+Quatre vues, sélectionnées dans le rail de gauche (la vue est mémorisée) :
+
+| Vue | Contenu |
+|---|---|
+| **Vue d'ensemble** | Bloc CPU (charge instantanée, moyenne 60 s, repos) + graphique 60 s CPU/RAM · tuiles cœurs / swap / uptime · carte **score de santé** (anneau 0-100 + alertes nommées) · tuiles disque / mémoire / batterie / réseau · panneau confidentialité (copier l'état, actualiser) · liste des volumes |
+| **Système** | Nom de machine, OS, noyau, architecture, modèle CPU, cœurs, uptime, IP, débits, RAM, swap + détail de chaque volume |
+| **Cœurs** | Graphique 60 s + charge par cœur avec niveau (nominal / élevé / saturé) |
+| **Réglages** | Langue, mode d'affichage, accent, copier l'état |
+
+Réglages persistés en `localStorage` : `app.lang`, `theme.mode`, `display.accent`, `nav.view`.
+Thème **sombre/clair**, **3 accents** (bleu / vert / rouge, déclinés par mode pour rester
+lisibles sur verre clair), trilingue **FR/EN/AR** avec **RTL complet** (rail, grilles et
+angles coupés miroités).
+
+### Score de santé
+
+Dérivé **uniquement de compteurs réellement lus** (`src/lib/compute.ts`, logique pure et
+testée) : on part de 100 et on retranche des pénalités par palier sur CPU / RAM / disque /
+swap / batterie / uptime. Un dépassement franc lève en plus une **alerte nommée**, reprise
+telle quelle dans la carte de statut et dans « copier l'état ». Aucun chiffre inventé, aucun
+capteur simulé.
+
+### Fenêtre sans décorations
+
+La barre de titre du design (pastilles fermer/réduire/agrandir, marque, sélecteurs, témoin
+« Direct ») **remplace le chrome natif** : `decorations: false` dans `tauri.conf.json`,
+glissement via `data-tauri-drag-region`, commandes de fenêtre via `@tauri-apps/api/window`
+(import dynamique + garde `inTauri()`, donc inertes dans l'aperçu navigateur). Les
+permissions correspondantes sont déclarées dans `src-tauri/capabilities/default.json`.
+
+### Polices
+
+Le design d'origine charge Chakra Petch et JetBrains Mono depuis Google Fonts : **écarté**
+(la CSP interdit tout `connect-src` et l'invariant produit est « zéro réseau sortant »).
+`src/styles.css` empile des familles locales (`--font-display`, `--font-mono`) — ces deux
+polices ne servent que si l'utilisateur les a installées, sinon repli système (Bahnschrift /
+Avenir Next Condensed, puis `ui-monospace`).
 
 ## Stack
 
-- **Frontend** : Vite + React 19 + TypeScript (DOM). Réplique l'UI/le thème de l'app
-  mobile (mêmes couleurs, jauges, i18n FR/EN/AR). Projet **100% autonome** : aucun
-  import hors de `desktop/` (les helpers `theme.ts`/`format.ts` sont des copies dans
-  `src/lib/`, voir ci-dessous).
+- **Frontend** : Vite + React 19 + TypeScript (DOM), styles inline via la factory
+  `makeStyles(theme, rtl)` mémoïsée (pas de CSS-in-JS, `styles.css` ne porte que le
+  reset, les keyframes HUD et les survols). Projet **100% autonome** : aucun import
+  hors de `desktop/` (voir « Réutilisation depuis l'app mobile »).
 - **Backend** : Tauri 2 (Rust). Une seule commande `get_metrics` (voir
   `src-tauri/src/main.rs`) qui agrège `sysinfo` + `starship-battery`.
 
@@ -51,8 +87,13 @@ npm run dev           # http://localhost:1420
 
 ```bash
 npm run build         # tsc --noEmit + vite build (porte frontend)
-cargo check --manifest-path src-tauri/Cargo.toml   # porte backend
+npm test              # vitest : logique pure (compute.ts) + parité des 3 langues
+cargo check --manifest-path src-tauri/Cargo.toml   # porte backend (valide aussi
+                                                   # tauri.conf.json + capabilities)
 ```
+
+`tests/i18n.test.ts` échoue si une clé est ajoutée en FR sans son équivalent EN/AR :
+la convention « les 3 langues sont maintenues de front » devient une porte bloquante.
 
 ## Produire les binaires (CI, recommandé)
 
@@ -98,10 +139,12 @@ Test local d'un `.dmg` non signé : clic droit → *Ouvrir* (contourne Gatekeepe
 ## Réutilisation depuis l'app mobile
 
 Choix assumé : le desktop est **autonome** (pas d'import cross-dossier vers `../src`).
-Les modules purs `src/lib/theme.ts` et `src/lib/format.ts` sont des **copies** des
-fichiers mobiles homonymes, et `src/lib/i18n.ts` reprend le même schéma. Raisons :
+`src/lib/format.ts` reste une copie du fichier mobile homonyme ; `src/lib/theme.ts` et
+`src/lib/i18n.ts` ont **divergé** depuis l'intégration du design HUD (jetons de verre,
+accents, ~90 clés propres au desktop) — ils n'ont plus vocation à être resynchronisés avec
+le mobile. Raisons de l'autonomie :
 (1) **isolation de build CI** — le runner Windows n'installe que les deps `desktop/`,
 or un import vers `../src` ferait remonter au `tsconfig` racine (`extends expo`,
 absent en CI) → build cassé ; (2) **découplage des cycles de release** — éditer le
-desktop ne déclenche jamais d'OTA mobile. Contrepartie : garder les copies en phase
-avec le mobile en cas d'évolution du design (≈ 60 lignes, faible churn).
+desktop ne déclenche jamais d'OTA mobile. Contrepartie : garder `format.ts` en phase
+avec le mobile en cas d'évolution (≈ 25 lignes, faible churn).

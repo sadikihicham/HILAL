@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "HILAL Desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.sadikihicham.hilal.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -10,15 +10,25 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
         "title": "HILAL",
-        "width": 480,
-        "height": 820,
-        "minWidth": 380,
-        "minHeight": 600,
-        "resizable": true
+        "width": 1280,
+        "height": 880,
+        "minWidth": 980,
+        "minHeight": 680,
+        "resizable": true,
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "underWindowBackground"
+          ],
+          "state": "followsWindowActiveState",
+          "radius": 16
+        },
+        "decorations": false
       }
     ],
     "security": {

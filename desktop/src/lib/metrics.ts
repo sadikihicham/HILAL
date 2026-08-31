@@ -1,11 +1,7 @@
-// Pont vers le backend Rust (Tauri) + helpers de formatage propres au desktop.
-// La forme de `Metrics` reflète exactement la sérialisation serde de la commande
-// `get_metrics` (camelCase). Réutilise `fmtBytes` de l'app mobile pour rester DRY.
+// Pont vers le backend Rust (Tauri) — UNIQUEMENT l'accès aux capteurs. La forme de
+// `Metrics` reflète exactement la sérialisation serde de la commande `get_metrics`
+// (camelCase). Les formats et calculs dérivés vivent dans `./compute` (purs, testés).
 import { invoke } from '@tauri-apps/api/core';
-
-// Helpers de formatage purs (testés sous Vitest) — ré-exportés pour que l'UI
-// continue d'importer depuis un point unique (`./lib/metrics`).
-export { fmtRate, fmtUptime, primaryDisk } from './compute';
 
 export type Battery = { level: number; state: string } | null;
 
