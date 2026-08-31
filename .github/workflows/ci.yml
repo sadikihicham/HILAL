@@ -1,14 +1,25 @@
 name: CI
 
-# Portes bloquantes (type-check TypeScript strict + tests Vitest) sur CHAQUE PR.
-# Sert de "required status check" à la branch protection de master : aucune PR ne
-# peut être mergée tant que ce job n'est pas vert. Ne publie RIEN — l'OTA reste
-# gérée exclusivement par `eas-update.yml` sur push master.
+# Portes bloquantes sur CHAQUE PR — un job par produit, car le dépôt en contient
+# deux : l'app mobile Expo (racine) et l'app desktop Tauri (`desktop/`), qui ont
+# des toolchains et des `tsconfig` disjoints (`tsconfig.json` racine exclut
+# `desktop/`). Le job `gates` ne couvre donc QUE le mobile : sans les jobs
+# `gates-desktop*`, les ~1 500 lignes de `desktop/` ne seraient testées nulle part
+# avant un tag de release. Ne publie RIEN — l'OTA reste gérée exclusivement par
+# `eas-update.yml` sur push master.
+#
+# ⚠️ `gates` est le "required status check" de la branch protection de master :
+# NE PAS le renommer sans mettre à jour la règle côté GitHub. Pour rendre les
+# nouveaux jobs bloquants eux aussi, les ajouter à la même règle.
+#
+# Aucun job n'a de filtre `paths` : un job requis qui ne démarre jamais reste
+# "pending" pour la branch protection et bloquerait la PR indéfiniment.
 on:
   pull_request:
   workflow_dispatch:
 
 jobs:
+  # ─────────────────────────────────────────────── mobile (Expo, racine du dépôt)
   gates:
     name: gates
     runs-on: ubuntu-latest
@@ -21,3 +32,69 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm test
+
+  # ──────────────────────────────────── desktop — frontend (rapide, échoue vite)
+  gates-desktop:
+    name: gates (desktop · front)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+
+      # `npm run build` = `tsc --noEmit && vite build` : type-check strict PUIS
+      # bundle réel (un import cassé ne se voit qu'au bundling).
+      - name: Type-check + build
+        run: npm run build
+
+      - name: Tests (logique pure + parité des 3 langues)
+        run: npm test
+
+      # Même garde que les workflows de release, mais jouée sur CHAQUE PR : sans
+      # elle un `fetch(` n'était détecté qu'au tag, donc trop tard.
+      - name: Garde anti-réseau (invariant zéro réseau sortant)
+        run: |
+          if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
+            echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src"
+
+  # ─────────────────── desktop — backend Rust (plus lent, isolé pour le diagnostic)
+  # `cargo check` fait tourner `tauri-build`, qui PARSE `tauri.conf.json` et compile
+  # les `capabilities/*.json` en ACL. C'est la seule porte qui attrape une clé de
+  # config invalide ou un identifiant de permission inexistant — jusqu'ici ces deux
+  # fichiers n'avaient aucune couverture avant le build de release.
+  gates-desktop-rust:
+    name: gates (desktop · rust)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v5
+
+      # Prérequis Tauri 2 sous Ubuntu (WebKitGTK & co). Le binaire Linux n'est pas
+      # distribué, mais la compilation valide le code Rust ET la config Tauri, qui
+      # sont multiplateformes.
+      - name: Dépendances système Tauri (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: cargo check (valide aussi tauri.conf.json + capabilities)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked
