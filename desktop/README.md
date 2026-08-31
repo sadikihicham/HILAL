@@ -28,6 +28,21 @@ Thème **sombre/clair**, **3 accents** (bleu / vert / rouge, déclinés par mode
 lisibles sur verre clair), trilingue **FR/EN/AR** avec **RTL complet** (rail, grilles et
 angles coupés miroités).
 
+### Deux cadences de sondage
+
+Le frontend appelle `get_metrics` à **1 Hz** (c'est la fenêtre de 60 s du graphique). Côté Rust,
+tout n'est pas relu à ce rythme :
+
+| Capteur | Cadence | Pourquoi |
+|---|---|---|
+| CPU, mémoire, réseau | **chaque appel** | ce sont des **deltas** sur l'intervalle écoulé — les espacer fausserait la mesure |
+| Disques, batterie | **`SLOW_REFRESH` = 5 s** | varient à l'échelle de la minute ; `Disks::refresh` re-stat chaque point de montage et `battery::Manager::new()` ré-énumère le matériel |
+
+Entre deux rafraîchissements lents, les valeurs mémorisées (`disks_cache`, `battery_cache`) sont
+resservies telles quelles. Le tout premier appel les lit forcément, donc aucun écran vide au
+démarrage. Conséquence assumée : le bouton « Actualiser » ne force pas une relecture disque si le
+précédent date de moins de 5 s.
+
 ### Score de santé
 
 Dérivé **uniquement de compteurs réellement lus** (`src/lib/compute.ts`, logique pure et
