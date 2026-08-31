@@ -8,7 +8,7 @@ import * as Battery from 'expo-battery';
 import * as Haptics from 'expo-haptics';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
 import { useTilt } from './src/useTilt';
-import { levelHapticStep, LEVEL_IN } from './src/tilt';
+import { clampOffset, levelHapticStep, LEVEL_IN } from './src/tilt';
 import { configureNotifications, notifyLowBattery, requestNotificationPermission } from './src/notifications';
 import { Lang, LANGS, isRTL, t } from './src/i18n';
 import { getTheme, Mode, Theme } from './src/theme';
@@ -18,6 +18,10 @@ import { lowBatteryStep } from './src/battery';
 configureNotifications();
 
 const ALERT_KEY = 'alert.lowbattery';
+// Débattement maximal de la bulle du niveau, en points, depuis le centre du
+// cercle extérieur (140 pt de diamètre, bulle de 26 pt).
+const BUBBLE_MAX = 46;
+
 const LANG_KEY = 'app.lang';
 const THEME_KEY = 'theme.mode';
 
@@ -196,8 +200,8 @@ function Monitor() {
             <View style={[st.bubble, {
               backgroundColor: tilt.angle < LEVEL_IN ? theme.gold : '#5fd3a0',
               transform: [
-                { translateX: Math.max(-46, Math.min(46, -tilt.x * 46)) },
-                { translateY: Math.max(-46, Math.min(46, tilt.y * 46)) },
+                { translateX: clampOffset(-tilt.x * BUBBLE_MAX, BUBBLE_MAX) },
+                { translateY: clampOffset(tilt.y * BUBBLE_MAX, BUBBLE_MAX) },
               ],
             }]} />
           </View>

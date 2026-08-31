@@ -14,7 +14,9 @@ surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / R
 
 > ⚠️ Contrainte mobile : contrairement au desktop, iOS/Android **sandboxent** les apps —
 > pas d'accès au **CPU**, à la **liste des process** ni au **kill** d'autres apps (impossible
-> par les API mobiles). HILAL surveille donc **l'appareil lui-même**, en lecture seule.
+> par les API mobiles). HILAL surveille donc **l'appareil lui-même**, en lecture seule : aucun
+> réglage modifié, aucun process tué, rien d'écrit hors de ses propres préférences. Seule
+> sortie : un **retour haptique** quand l'appareil se cale à plat.
 
 ## Lancer (Expo Go)
 
