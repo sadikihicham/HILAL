@@ -4,10 +4,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use sysinfo::{Disks, Networks, System};
+
+/// Cadence des capteurs « lents ». Le frontend sonde à 1 Hz (fenêtre de 60 s du
+/// graphique), or l'espace disque et le niveau de batterie varient à l'échelle de
+/// la minute : les relire à chaque tick ne fait que brûler des syscalls. `Disks::
+/// refresh` re-stat chaque point de montage et `battery::Manager::new()` ré-énumère
+/// le matériel — deux coûts inutiles 60 fois par minute. CPU, mémoire et réseau,
+/// eux, restent lus à chaque appel : ce sont des deltas, les espacer fausserait la
+/// mesure.
+const SLOW_REFRESH: Duration = Duration::from_secs(5);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,7 +40,7 @@ struct SwapInfo {
     used: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct DiskInfo {
     name: String,
     mount: String,
@@ -48,7 +57,7 @@ struct NetInfo {
     tx_total: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct BatteryInfo {
     level: f32,
     state: String,
@@ -84,6 +93,11 @@ struct Shared {
     networks: Networks,
     disks: Disks,
     last: Instant,
+    /// Dernière lecture des capteurs lents (None = jamais lus) et valeurs mémorisées,
+    /// resservies telles quelles entre deux rafraîchissements.
+    last_slow: Option<Instant>,
+    disks_cache: Vec<DiskInfo>,
+    battery_cache: Option<BatteryInfo>,
 }
 
 struct AppState(Mutex<Shared>);
@@ -117,8 +131,27 @@ fn get_metrics(state: tauri::State<AppState>) -> Metrics {
     s.system.refresh_cpu_all();
     s.system.refresh_memory();
     s.networks.refresh(true);
-    s.disks.refresh(true);
     s.last = now;
+
+    // Capteurs lents : au plus une fois toutes les SLOW_REFRESH, sinon on resert le
+    // cache. `map_or(true, ...)` -> le tout premier appel les lit forcément.
+    if s.last_slow.map_or(true, |t| now.duration_since(t) >= SLOW_REFRESH) {
+        s.disks.refresh(true);
+        let fresh: Vec<DiskInfo> = s
+            .disks
+            .list()
+            .iter()
+            .map(|d| DiskInfo {
+                name: d.name().to_string_lossy().to_string(),
+                mount: d.mount_point().to_string_lossy().to_string(),
+                total: d.total_space(),
+                available: d.available_space(),
+            })
+            .collect();
+        s.disks_cache = fresh;
+        s.battery_cache = read_battery();
+        s.last_slow = Some(now);
+    }
 
     let cpus = s.system.cpus();
     let cpu = CpuInfo {
@@ -138,17 +171,7 @@ fn get_metrics(state: tauri::State<AppState>) -> Metrics {
         used: s.system.used_swap(),
     };
 
-    let disks = s
-        .disks
-        .list()
-        .iter()
-        .map(|d| DiskInfo {
-            name: d.name().to_string_lossy().to_string(),
-            mount: d.mount_point().to_string_lossy().to_string(),
-            total: d.total_space(),
-            available: d.available_space(),
-        })
-        .collect();
+    let disks = s.disks_cache.clone();
 
     let (mut rx, mut tx, mut rx_total, mut tx_total) = (0u64, 0u64, 0u64, 0u64);
     let mut ip: Option<String> = None;
@@ -192,7 +215,7 @@ fn get_metrics(state: tauri::State<AppState>) -> Metrics {
         swap,
         disks,
         net,
-        battery: read_battery(),
+        battery: s.battery_cache.clone(),
         system,
         ip,
     }
@@ -212,6 +235,9 @@ fn main() {
         networks,
         disks,
         last: Instant::now(),
+        last_slow: None,
+        disks_cache: Vec::new(),
+        battery_cache: None,
     }));
 
     tauri::Builder::default()
