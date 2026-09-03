@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import pkg from '../package.json';
 import {
   ACCENT_LIST, ACCENT_SWATCH, getAccent, getTheme,
   type Accent, type AccentTokens, type Mode, type Theme,
@@ -38,8 +39,9 @@ const CHART_W = 460;
 const CHART_H = 180;
 const RING_R = 33;
 const RING_C = 2 * Math.PI * RING_R;
-// Affichage seul — à garder en phase à la main avec package.json / tauri.conf.json.
-const APP_VERSION = 'v1.1.0';
+// Dérivé de package.json : la version affichée ne peut plus diverger du paquet.
+// `tests/version.test.ts` verrouille l'accord avec Cargo.toml et tauri.conf.json.
+const APP_VERSION = `v${pkg.version}`;
 
 type View = 'overview' | 'system' | 'cores' | 'processes' | 'settings';
 type Disk = Metrics['disks'][number];
