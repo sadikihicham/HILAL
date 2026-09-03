@@ -39,6 +39,10 @@ pub struct ProcInfo {
     pub is_self: bool,
     pub run_time: u64,
     pub status: String,
+    /// Date de démarrage (secondes epoch). Sert d'IDENTITÉ du processus : le frontend la
+    /// renvoie lors d'un arrêt, et le backend refuse d'agir si elle a changé — un PID
+    /// réattribué entre l'affichage et le clic désignerait un AUTRE processus.
+    pub start_time: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -143,6 +147,7 @@ impl ProcSampler {
                     is_self: Some(*pid) == self_pid,
                     run_time: proc.run_time(),
                     status: proc.status().to_string(),
+                    start_time: proc.start_time(),
                 })
             })
             .collect();
@@ -188,7 +193,15 @@ pub struct KillOutcome {
     pub reason: String,
 }
 
-pub fn kill(system: &sysinfo::System, pid: u32, force: bool) -> KillOutcome {
+/// `expected_start` = la date de démarrage que le frontend AFFICHAIT. Elle transforme
+/// « tue le PID 4711 » en « tue le processus que l'utilisateur a vu ».
+///
+/// 🪤 Rafraîchir le PID avant de tirer ne protège de RIEN : `sysinfo` détecte le
+/// recyclage et REMPLACE l'entrée par le nouveau processus. Le refresh n'attrape donc que
+/// la disparition, jamais la substitution — on tuerait le remplaçant en annonçant un
+/// succès. Limite assumée : la granularité est la seconde, deux processus nés dans la même
+/// seconde sur le même PID resteraient indiscernables (cas de laboratoire).
+pub fn kill(system: &sysinfo::System, pid: u32, force: bool, expected_start: u64) -> KillOutcome {
     let key = Pid::from_u32(pid);
     if sysinfo::get_current_pid().ok() == Some(key) {
         // Se tuer soi-même ferait disparaître la fenêtre sans un mot. Ce n'est pas une
@@ -199,6 +212,12 @@ pub fn kill(system: &sysinfo::System, pid: u32, force: bool) -> KillOutcome {
     let Some(proc) = system.process(key) else {
         return KillOutcome { ok: false, reason: "killGone".into() };
     };
+    // Le PID a été réattribué entre l'affichage et le clic : ce n'est plus le même
+    // processus. On s'abstient et on le DIT, plutôt que de tuer un innocent en annonçant
+    // « arrêté ». `expected_start == 0` = appelant qui ne vérifie pas (jamais l'UI).
+    if expected_start != 0 && proc.start_time() != expected_start {
+        return KillOutcome { ok: false, reason: "killChanged".into() };
+    }
     if force {
         // SIGKILL / TerminateProcess : non interceptable, travail non enregistré perdu.
         return match proc.kill() {
@@ -225,7 +244,38 @@ mod tests {
             pid, name: name.into(), cpu, mem,
             disk_read: 0, disk_write: 0, watts,
             user: None, mine: true, is_self: false, run_time: 0, status: "Run".into(),
+            start_time: 0,
         }
+    }
+
+    #[test]
+    fn un_pid_reattribue_n_est_pas_tue() {
+        // Il faut un processus RÉEL qui ne soit pas nous-mêmes : la garde anti-suicide
+        // s'exécute avant celle-ci et masquerait le résultat. On engendre donc un enfant,
+        // et on l'arrête proprement à la fin quoi qu'il arrive.
+        let mut enfant = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .expect("impossible de lancer le processus témoin");
+        let pid = enfant.id();
+
+        let mut system = sysinfo::System::new();
+        system.refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
+        let vraie_date = system
+            .process(Pid::from_u32(pid))
+            .expect("le témoin doit être visible")
+            .start_time();
+
+        // Date qui ne correspond pas = PID réattribué depuis l'affichage -> refus.
+        let refus = kill(&system, pid, true, vraie_date.wrapping_add(1));
+        assert!(!refus.ok, "un PID réattribué ne doit pas être tué");
+        assert_eq!(refus.reason, "killChanged");
+        assert!(enfant.try_wait().unwrap().is_none(), "le témoin doit être VIVANT");
+
+        // La bonne date, elle, laisse passer : la garde ne bloque pas l'usage légitime.
+        let ok = kill(&system, pid, true, vraie_date);
+        assert!(ok.ok, "la date correcte doit autoriser l'arrêt : {}", ok.reason);
+        let _ = enfant.wait();
     }
 
     #[test]
@@ -301,6 +351,25 @@ mod tests {
                 p.watts.map_or("—".into(), |w| format!("{w:.3} W")),
             );
         }
+    }
+
+    /// Reproduit la CADENCE RÉELLE de l'application (2 s), pas les 400 ms du test
+    /// d'intégration : c'est à cette cadence que l'interface affiche « estimation »
+    /// partout, symptôme d'une mesure d'énergie qui ne remonte pas.
+    #[test]
+    fn la_mesure_d_energie_tient_a_la_cadence_de_l_application() {
+        let mut system = sysinfo::System::new();
+        let mut sampler = ProcSampler::new();
+        let a = sampler.collect(&mut system, "cpu", "", 500);
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+        let b = sampler.collect(&mut system, "cpu", "", 500);
+        let mesures = b.items.iter().filter(|p| p.watts.is_some()).count();
+        eprintln!(
+            "  1er tick : {}/{} mesurés · 2e tick : {}/{} mesurés",
+            a.items.iter().filter(|p| p.watts.is_some()).count(), a.items.len(),
+            mesures, b.items.len(),
+        );
+        assert!(mesures > 0, "aucune mesure d'énergie à 2 s d'intervalle");
     }
 
     #[test]

@@ -124,11 +124,15 @@ export type ThermalSummary = {
   cpu: number | null;
   battery: number | null;
   storage: number | null;
+  /** Capteur le plus chaud parmi les températures de FONCTIONNEMENT. Les capteurs
+   *  classés « other » (calibration…) en sont exclus : afficher `PMU tcal` à 52 °C
+   *  comme « point le plus chaud » à côté d'un processeur à 44 °C n'informe pas. */
   hottest: TempRow | null;
   /** Capteurs retenus, dédoublonnés par libellé, du plus chaud au plus froid. */
   rows: TempRow[];
-  /** Capteurs écartés comme invraisemblables — affiché pour que le chiffre soit
-   *  auditable plutôt que magique. */
+  /** Capteurs lus mais NON affichés — valeurs aberrantes ET doublons de libellé.
+   *  L'arithmétique doit tomber juste : `rows.length + dropped === components.length`,
+   *  sinon le panneau annonce un total qui ne se vérifie pas. */
   dropped: number;
 };
 
@@ -180,9 +184,12 @@ export const thermalSummary = (components: { label: string; temp: number }[]): T
     cpu: maxOf('cpu'),
     battery: maxOf('battery'),
     storage: maxOf('storage'),
-    hottest: rows[0] ?? null,
+    // `find` et non `rows[0]` : le plus chaud DES températures de fonctionnement.
+    hottest: rows.find((r) => r.group !== 'other') ?? null,
     rows,
-    dropped: components.length - kept.length,
+    // Compté sur `rows` et non sur `kept` : le dédoublonnage retire lui aussi des
+    // lignes, et les oublier laissait des capteurs évaporés dans le décompte affiché.
+    dropped: components.length - rows.length,
   };
 };
 
