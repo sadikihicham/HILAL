@@ -17,6 +17,10 @@ surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / R
 > par les API mobiles). HILAL surveille donc **l'appareil lui-même**, en lecture seule : aucun
 > réglage modifié, aucun process tué, rien d'écrit hors de ses propres préférences. Seule
 > sortie : un **retour haptique** quand l'appareil se cale à plat.
+>
+> 👉 Tout cela EST possible sur ordinateur : voir **[`desktop/`](desktop/README.md)** —
+> températures, ventilateurs, liste des processus avec énergie mesurée, arrêt et arrêt
+> forcé, icône de barre d'état.
 
 ## Lancer (Expo Go)
 

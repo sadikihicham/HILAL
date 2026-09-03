@@ -1,13 +1,28 @@
 // HILAL Desktop — backend Tauri. Lit le matériel local (CPU/RAM/disque/réseau/
-// batterie) via `sysinfo` + `starship-battery`. AUCUN accès réseau sortant :
-// l'app ne fait que lire des compteurs systèmes locaux (invariant produit HILAL).
+// batterie/thermique) via `sysinfo`, `starship-battery` et, pour les ventilateurs,
+// le SMC d'Apple. AUCUN accès réseau sortant : l'app ne fait que lire des compteurs
+// systèmes locaux (invariant produit HILAL, inchangé).
+//
+// ⚠️ CE QUI A CHANGÉ le 2026-09-03 : `kill_process` MUTE le système. HILAL n'est plus
+// « en lecture seule » ; l'invariant qui subsiste est « 100% local, zéro réseau ».
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod energy;
+mod procs;
+#[cfg(target_os = "macos")]
+mod smc;
+mod thermal;
+mod tray;
+
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use sysinfo::{Disks, Networks, System};
+use sysinfo::{Components, Disks, Networks, System};
+use tauri::Manager;
+
+use thermal::Thermal;
 
 /// Cadence des capteurs « lents ». Le frontend sonde à 1 Hz (fenêtre de 60 s du
 /// graphique), or l'espace disque et le niveau de batterie varient à l'échelle de
@@ -17,6 +32,11 @@ use sysinfo::{Disks, Networks, System};
 /// eux, restent lus à chaque appel : ce sont des deltas, les espacer fausserait la
 /// mesure.
 const SLOW_REFRESH: Duration = Duration::from_secs(5);
+
+/// Le thermique a sa propre cadence : une température bouge en quelques secondes
+/// (bien plus vite qu'un disque), mais interroger 77 capteurs IOHID à 1 Hz serait
+/// gratuitement coûteux. Deux secondes est le compromis.
+const THERMAL_REFRESH: Duration = Duration::from_secs(2);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +104,7 @@ struct Metrics {
     battery: Option<BatteryInfo>,
     system: SystemInfo,
     ip: Option<String>,
+    thermal: Thermal,
 }
 
 /// État partagé conservé entre deux sondages : permet à `sysinfo` de calculer
@@ -92,12 +113,16 @@ struct Shared {
     system: System,
     networks: Networks,
     disks: Disks,
+    components: Components,
+    sampler: procs::ProcSampler,
     last: Instant,
     /// Dernière lecture des capteurs lents (None = jamais lus) et valeurs mémorisées,
     /// resservies telles quelles entre deux rafraîchissements.
     last_slow: Option<Instant>,
+    last_thermal: Option<Instant>,
     disks_cache: Vec<DiskInfo>,
     battery_cache: Option<BatteryInfo>,
+    thermal_cache: Thermal,
 }
 
 struct AppState(Mutex<Shared>);
@@ -151,6 +176,14 @@ fn get_metrics(state: tauri::State<AppState>) -> Metrics {
         s.disks_cache = fresh;
         s.battery_cache = read_battery();
         s.last_slow = Some(now);
+    }
+
+    if s.last_thermal.map_or(true, |t| now.duration_since(t) >= THERMAL_REFRESH) {
+        // Emprunt disjoint : `read` a besoin des composants en mutable, le cache est
+        // un autre champ de la même structure.
+        let shared = &mut *s;
+        shared.thermal_cache = thermal::read(&mut shared.components);
+        shared.last_thermal = Some(now);
     }
 
     let cpus = s.system.cpus();
@@ -218,7 +251,38 @@ fn get_metrics(state: tauri::State<AppState>) -> Metrics {
         battery: s.battery_cache.clone(),
         system,
         ip,
+        thermal: s.thermal_cache.clone(),
     }
+}
+
+/// Énumération des processus. Commande SÉPARÉE de `get_metrics` à dessein : c'est la
+/// lecture la plus chère du backend, et la vue Processus est la seule à en avoir
+/// besoin. Tant qu'elle n'est pas ouverte, ce coût n'existe pas.
+#[tauri::command]
+fn list_processes(
+    state: tauri::State<AppState>,
+    sort: String,
+    filter: String,
+    limit: usize,
+) -> procs::ProcList {
+    let mut s = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    let shared = &mut *s;
+    shared
+        .sampler
+        .collect(&mut shared.system, &sort, &filter, limit)
+}
+
+/// ⚠️ Seule commande de HILAL qui modifie l'état de la machine. La confirmation est
+/// portée par l'interface ; ici on se contente de rafraîchir la table (le PID peut
+/// avoir disparu depuis l'affichage) puis de transmettre la demande au système.
+#[tauri::command]
+fn kill_process(state: tauri::State<AppState>, pid: u32, force: bool) -> procs::KillOutcome {
+    let mut s = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    s.system.refresh_processes(
+        sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+        true,
+    );
+    procs::kill(&s.system, pid, force)
 }
 
 fn main() {
@@ -229,20 +293,70 @@ fn main() {
     system.refresh_cpu_all();
     let networks = Networks::new_with_refreshed_list();
     let disks = Disks::new_with_refreshed_list();
+    let components = Components::new_with_refreshed_list();
 
     let state = AppState(Mutex::new(Shared {
         system,
         networks,
         disks,
+        components,
+        sampler: procs::ProcSampler::new(),
         last: Instant::now(),
         last_slow: None,
+        last_thermal: None,
         disks_cache: Vec::new(),
         battery_cache: None,
+        thermal_cache: Thermal::default(),
     }));
 
     tauri::Builder::default()
         .manage(state)
-        .invoke_handler(tauri::generate_handler![get_metrics])
-        .run(tauri::generate_context!())
-        .expect("erreur au lancement de HILAL Desktop");
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Avec une icône de barre d'état active, fermer replie l'application
+                // au lieu de la quitter — comportement attendu d'un moniteur qui vit
+                // dans la barre. Sans icône, fermer quitte vraiment : replier une
+                // fenêtre sans point de retour la rendrait irrécupérable.
+                let repli = window
+                    .app_handle()
+                    .try_state::<tray::TrayState>()
+                    .is_some_and(|s| s.enabled.load(Ordering::Relaxed));
+                if repli {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_metrics,
+            list_processes,
+            kill_process,
+            tray::set_tray_label,
+            tray::set_tray_menu_labels,
+            tray::set_tray_visible,
+        ])
+        .build(tauri::generate_context!())
+        .expect("erreur au lancement de HILAL Desktop")
+        .run(|app, event| match event {
+            // 🪤 MESURÉ le 2026-09-03 : construite dans `.setup()`, l'icône de barre
+            // d'état n'apparaissait JAMAIS — alors que `tray_by_id`, `set_title` et
+            // `set_visible` renvoyaient tous `Ok`. `setup` s'exécute avant que
+            // `NSApplication` ait fini son lancement, et un `NSStatusItem` créé à ce
+            // moment-là est accepté sans jamais s'attacher à la barre. `Ready` est le
+            // premier instant où la création prend effet.
+            tauri::RunEvent::Ready => match tray::build(app) {
+                Ok(state) => { app.manage(state); }
+                Err(e) => eprintln!("icône de barre d'état indisponible : {e}"),
+            },
+            // Clic sur l'icône du Dock alors que la fenêtre est repliée dans la barre
+            // de menus : macOS envoie Reopen, à nous de la faire réapparaître.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+            _ => {}
+        });
 }

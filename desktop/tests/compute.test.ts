@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  areaPoints, avg, clamp01, fmtRate, fmtUptime, frac, healthScore, loadLevel, polyPoints, primaryDisk,
+  areaPoints, avg, clamp01, energyScore, fanFrac, fmtRate, fmtUptime, frac, healthScore,
+  isCriticalProcess, loadLevel, plausibleTemp, polyPoints, primaryDisk, tempFrac, tempGroup,
+  tempLevel, thermalSummary, trayText, gaugeGradient, gaugeScale, gaugeColor, gaugeTarget, mixColor,
 } from '../src/lib/compute';
 
 const HEALTHY = { cpu: 0.1, ram: 0.3, disk: 0.4, swap: 0, battery: 0.9, uptime: 3600 };
@@ -152,5 +154,228 @@ describe('polyPoints / areaPoints', () => {
 
   it('ferme le polygone jusqu’au bas du graphique', () => {
     expect(areaPoints('0.0,10.0 100.0,20.0', 100, 100)).toBe('0.0,10.0 100.0,20.0 100,100 0,100');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────── thermique
+
+describe('plausibleTemp / thermalSummary', () => {
+  it('écarte la valeur sentinelle des capteurs non connectés', () => {
+    // MESURÉ le 2026-09-03 sur M5 Pro : les slots `PMU tdev*` renvoient -9201,14 °C.
+    expect(plausibleTemp(-9201.14)).toBe(false);
+    expect(plausibleTemp(-9199.43)).toBe(false);
+    expect(plausibleTemp(41)).toBe(true);
+    expect(plausibleTemp(NaN)).toBe(false);
+    expect(plausibleTemp(999)).toBe(false);
+  });
+
+  it('classe les libellés des trois plateformes', () => {
+    expect(tempGroup('PMU tdie9')).toBe('cpu');           // Apple Silicon
+    expect(tempGroup('coretemp Package id 0')).toBe('cpu'); // Linux Intel
+    expect(tempGroup('k10temp Tctl')).toBe('cpu');          // Linux AMD
+    expect(tempGroup('Computer')).toBe('cpu');              // Windows WMI
+    expect(tempGroup('gas gauge battery')).toBe('battery');
+    expect(tempGroup('NAND CH0 temp')).toBe('storage');
+    // `tcal` est un capteur de CALIBRATION, pas une température de fonctionnement :
+    // le classer en CPU gonflerait le chiffre affiché de dix degrés.
+    expect(tempGroup('PMU tcal')).toBe('other');
+  });
+
+  it('dédoublonne par libellé en gardant le maximum', () => {
+    const s = thermalSummary([
+      { label: 'PMU tdie1', temp: 41 },
+      { label: 'PMU tdie1', temp: 44 },
+    ]);
+    expect(s.rows).toHaveLength(1);
+    expect(s.cpu).toBe(44);
+  });
+
+  it('sur un jeu réaliste : bon CPU, bonne batterie, aberrations comptées', () => {
+    const s = thermalSummary([
+      { label: 'PMU tdie1', temp: 38 },
+      { label: 'PMU tdie6', temp: 44 },
+      { label: 'PMU tdev1', temp: -9201.14 },
+      { label: 'PMU tdev3', temp: -9199.43 },
+      { label: 'PMU tcal', temp: 51.8 },
+      { label: 'gas gauge battery', temp: 32 },
+      { label: 'NAND CH0 temp', temp: 35 },
+    ]);
+    expect(s.cpu).toBe(44);
+    expect(s.battery).toBe(32);
+    expect(s.storage).toBe(35);
+    expect(s.dropped).toBe(2);
+    // `tcal` (51,8 °C) est bien le plus chaud RETENU, mais n'est pas le CPU.
+    expect(s.hottest?.label).toBe('PMU tcal');
+    expect(s.cpu).not.toBe(51.8);
+  });
+
+  it('aucun capteur : tout à null plutôt qu’à zéro', () => {
+    const s = thermalSummary([]);
+    expect(s.cpu).toBeNull();
+    expect(s.battery).toBeNull();
+    expect(s.hottest).toBeNull();
+    expect(s.dropped).toBe(0);
+  });
+
+  it('seuils de température', () => {
+    expect(tempLevel(40)).toBe('ok');
+    expect(tempLevel(80)).toBe('warn');
+    expect(tempLevel(95)).toBe('crit');
+  });
+
+  it('tempFrac borne l’échelle 20→100 °C', () => {
+    expect(tempFrac(20)).toBe(0);
+    expect(tempFrac(60)).toBe(0.5);
+    expect(tempFrac(150)).toBe(1);
+    expect(tempFrac(-9201)).toBe(0);
+  });
+});
+
+describe('fanFrac', () => {
+  it('0 tr/min = jauge vide, même avec un minimum constructeur à 1350', () => {
+    // Cas RÉEL : MacBook Pro froid, ventilateurs arrêtés. La soustraction naïve
+    // donnerait un négatif.
+    expect(fanFrac(0, 1350, 5349)).toBe(0);
+  });
+  it('interpole entre min et max', () => {
+    expect(fanFrac(3350, 1350, 5350)).toBeCloseTo(0.5, 3);
+    expect(fanFrac(5350, 1350, 5350)).toBe(1);
+  });
+  it('sans maximum connu : 0 plutôt qu’une division par zéro', () => {
+    expect(fanFrac(2000, null, null)).toBe(0);
+    expect(fanFrac(2000, 1000, 0)).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────── processus
+
+describe('energyScore', () => {
+  it('la charge CPU domine, les E/S disque pèsent 2 points par Mo/s', () => {
+    expect(energyScore({ cpu: 10, diskRead: 0, diskWrite: 0 })).toBe(10);
+    expect(energyScore({ cpu: 10, diskRead: 1e6, diskWrite: 0 })).toBe(12);
+    expect(energyScore({ cpu: 0, diskRead: 5e5, diskWrite: 5e5 })).toBe(2);
+  });
+  it('borne les valeurs négatives d’un compteur qui a hoqueté', () => {
+    expect(energyScore({ cpu: -5, diskRead: -1e6, diskWrite: 0 })).toBe(0);
+  });
+});
+
+describe('isCriticalProcess', () => {
+  it('reconnaît les processus système des trois plateformes', () => {
+    expect(isCriticalProcess('WindowServer', 143)).toBe(true);
+    expect(isCriticalProcess('csrss.exe', 500)).toBe(true);
+    expect(isCriticalProcess('systemd', 900)).toBe(true);
+  });
+  it('PID 0 et 1 sont toujours critiques', () => {
+    expect(isCriticalProcess('launchd', 1)).toBe(true);
+    expect(isCriticalProcess('peu-importe', 0)).toBe(true);
+  });
+  it('insensible à la casse et aux espaces', () => {
+    // Le nom remonté par le système varie en casse selon la plateforme ; la
+    // reconnaissance ne doit pas en dépendre.
+    expect(isCriticalProcess('  WINDOWSERVER ', 200)).toBe(true);
+    expect(isCriticalProcess(' windowserver ', 200)).toBe(true);
+    expect(isCriticalProcess('WindowServer', 200)).toBe(true);
+  });
+  it('une application ordinaire n’est pas critique', () => {
+    expect(isCriticalProcess('firefox', 412)).toBe(false);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────── barre d'état
+
+describe('trayText', () => {
+  const base = { cpu: 0.25, ram: 0.61, temp: 44, netDown: 1024, battery: 0.9 };
+
+  it('rend chaque métrique dans son unité', () => {
+    expect(trayText('cpu', base)).toBe('25%');
+    expect(trayText('ram', base)).toBe('61%');
+    expect(trayText('temp', base)).toBe('44°');
+    expect(trayText('net', base)).toBe('1.0 Ko/s');
+    expect(trayText('battery', base)).toBe('90%');
+  });
+
+  it('« off » ne rend rien : le backend efface alors le titre', () => {
+    expect(trayText('off', base)).toBeNull();
+  });
+
+  it('une donnée absente donne un tiret, JAMAIS un zéro trompeur', () => {
+    expect(trayText('temp', { ...base, temp: null })).toBe('—');
+    expect(trayText('battery', { ...base, battery: null })).toBe('—');
+  });
+});
+
+describe('jauges dégradées', () => {
+  const C = { accent: '#0af', warn: '#fa0', crit: '#f04' };
+
+  it('part de la couleur de base, plate jusqu’à 50 %, et finit en rouge', () => {
+    const g = gaugeGradient(C, false);
+    // Deux arrêts d'accent (0 % et 50 %) = aucun virage avant la moitié.
+    expect(g).toContain('#0af 0%, #0af 50%');
+    expect(g).toContain('#f04 100%');
+  });
+
+  it('le rouge est TOUJOURS à l’arrivée, pour toutes les métriques', () => {
+    // Une inversion pour la batterie avait été essayée puis retirée : elle plaçait le
+    // rouge au DÉPART et cassait la lecture d'ensemble. Ce test fige la décision.
+    const g = gaugeGradient(C, false);
+    expect(g.indexOf('#0af')).toBeLessThan(g.indexOf('#f04'));
+  });
+
+  it('base ROUGE : le dégradé vire vers le jaune, pas vers du rouge invisible', () => {
+    // Cas réel : l'accent « rouge » vaut EXACTEMENT `crit` dans les deux thèmes.
+    const rouge = { accent: '#f04', warn: '#fa0', crit: '#f04' };
+    expect(gaugeTarget(rouge)).toBe('#fa0');
+    expect(gaugeGradient(rouge, false)).toContain('#fa0 100%');
+    expect(gaugeTarget(C)).toBe('#f04');
+  });
+
+  it('suit le sens de lecture', () => {
+    expect(gaugeGradient(C, false)).toContain('to right');
+    expect(gaugeGradient(C, true)).toContain('to left');
+  });
+
+  it('gaugeScale cale le dégradé sur la piste, pas sur le remplissage', () => {
+    expect(gaugeScale(1)).toBe('100.00% 100%');
+    expect(gaugeScale(0.5)).toBe('200.00% 100%');
+    expect(gaugeScale(0.25)).toBe('400.00% 100%');
+  });
+
+  it('gaugeScale ne divise jamais par zéro sur une jauge vide', () => {
+    expect(gaugeScale(0)).toBe('5000.00% 100%');
+    expect(gaugeScale(NaN)).toBe('5000.00% 100%');
+  });
+});
+
+describe('gaugeColor', () => {
+  const C = { accent: '#00aaff', warn: '#ffaa00', crit: '#ff0044' };
+
+  it('reste sur la couleur de base jusqu’à 50 %', () => {
+    expect(gaugeColor(0, C)).toBe('#00aaff');
+    expect(gaugeColor(0.3, C)).toBe('#00aaff');
+    expect(gaugeColor(0.5, C)).toBe('#00aaff');
+  });
+
+  it('glisse ensuite linéairement de la base vers le rouge', () => {
+    // 75 % = exactement à mi-chemin du segment 50→100 %.
+    expect(gaugeColor(0.75, C)).toBe('#8055a2');
+    expect(gaugeColor(1, C)).toBe('#ff0044');
+  });
+
+  it('base rouge : la valeur vire au jaune à 100 %, jamais rouge sur rouge', () => {
+    const rouge = { accent: '#ff0044', warn: '#ffaa00', crit: '#ff0044' };
+    expect(gaugeColor(0.2, rouge)).toBe('#ff0044');
+    expect(gaugeColor(1, rouge)).toBe('#ffaa00');
+  });
+
+  it('mixColor ne renvoie jamais du noir sur une couleur non hexadécimale', () => {
+    expect(mixColor('rgba(1,2,3,.5)', '#ffffff', 0.2)).toBe('rgba(1,2,3,.5)');
+    expect(mixColor('rgba(1,2,3,.5)', '#ffffff', 0.8)).toBe('#ffffff');
+  });
+
+  it('borne les fractions hors plage', () => {
+    expect(gaugeColor(-1, C)).toBe('#00aaff');
+    expect(gaugeColor(9, C)).toBe('#ff0044');
+    expect(gaugeColor(NaN, C)).toBe('#00aaff');
   });
 });

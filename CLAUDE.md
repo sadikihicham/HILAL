@@ -12,8 +12,28 @@ Ne pas présumer des signatures d'autres SDK (voir aussi `AGENTS.md`).
 
 ## Ce que c'est
 
-HILAL est un **moniteur d'appareil mobile** (iOS + Android), « version mobile de macOS State ».
+⚠️ **Ce dépôt contient DEUX produits**, qui partagent le nom, l'invariant réseau et rien
+d'autre. Ne pas « harmoniser » l'un sur l'autre par réflexe :
+
+| | Racine (`App.tsx`, `src/`) | `desktop/` |
+|---|---|---|
+| Quoi | app **mobile** Expo (iOS + Android) | app **desktop** Tauri 2 (Windows + macOS) |
+| Interface | widget doré au croissant | HUD cyan « SYS//MONITOR » |
+| Écrit-il sur la machine ? | **non, jamais** | **oui** : arrêt de processus |
+| Doc dédiée | ce fichier | `desktop/README.md` |
+
+La divergence d'identité visuelle est **assumée** : le HUD desktop ne se comprime pas à un
+écran de téléphone. Toute unification serait une décision produit à part entière.
+
+HILAL (mobile) est un **moniteur d'appareil mobile** (iOS + Android), « version mobile de macOS State ».
 Il affiche l'état du matériel **en lecture seule, 100% local**. « Lecture seule » porte sur l'**état du système** : HILAL ne modifie aucun réglage, ne tue aucun process, n'écrit rien hors de ses propres préférences. Le seul effet sortant est le **retour haptique** local (vibration quand l'appareil se cale à plat) — un signal vers l'utilisateur, pas une mutation de l'appareil.
+
+🔴 **La « lecture seule » vaut pour le MOBILE uniquement.** Depuis le 2026-09-03, le
+desktop expose une vue **Processus** capable d'arrêter (`SIGTERM`) ou de forcer l'arrêt
+(`SIGKILL` / `TerminateProcess`) d'un processus : il MODIFIE donc la machine. C'est la
+seule commande qui le fasse (`kill_process`), confirmée en deux temps dans l'interface.
+L'invariant commun aux deux produits reste **zéro réseau sortant**. Le mobile, lui, ne
+peut de toute façon pas faire autrement : la sandbox le lui interdit.
 
 - **Invariant produit : zéro réseau sortant.** Aucune télémétrie, aucun `fetch`, aucune analytics.
   Ne jamais introduire d'appel réseau — c'est la promesse du produit.

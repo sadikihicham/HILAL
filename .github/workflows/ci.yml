@@ -98,3 +98,12 @@ jobs:
 
       - name: cargo check (valide aussi tauri.conf.json + capabilities)
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked
+
+      # Ajouté le 2026-09-03 avec les modules thermique/processus/énergie. Ces tests
+      # couvrent ce qu'aucune relecture n'attrape : les DISPOSITIONS BINAIRES du
+      # protocole SMC (80 octets) et de `rusage_info_v6` (464 octets). Un décalage y
+      # ferait lire un autre champ — donnée fausse, jamais une erreur. Les tests
+      # spécifiques à macOS sont exclus par `cfg` et ne tournent pas ici ; le test
+      # d'énumération des processus, lui, s'exécute bien sous Linux.
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
