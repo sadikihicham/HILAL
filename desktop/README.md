@@ -125,6 +125,32 @@ la convention « les 3 langues sont maintenues de front » devient une porte blo
 
 ## Produire les binaires (CI, recommandé)
 
+### ⚠️ D'abord monter la version — sinon les binaires mentent
+
+La version vit dans **cinq** fichiers. Taguer sans les monter produit des binaires étiquetés
+`1.1.0` sous un tag `v1.2.0` : le tag et l'artefact se contredisent, et personne ne s'en rend
+compte avant l'installation.
+
+```bash
+cd desktop
+npm version 1.2.0 --no-git-tag-version   # package.json + package-lock.json d'un seul geste
+# puis à la main, la même valeur dans :
+#   src-tauri/Cargo.toml        version = "1.2.0"
+#   src-tauri/Cargo.lock        [[package]] name = "hilal-desktop" -> version
+#   src-tauri/tauri.conf.json   "version": "1.2.0"
+npm test                                  # tests/version.test.ts refuse tout désaccord
+```
+
+`tests/version.test.ts` est la porte : elle échoue si l'un des cinq diverge. Elle existe parce
+que la dérive s'est déjà produite — un `package-lock.json` resté en arrière fait échouer
+`npm ci` **en CI, pendant la release**. `APP_VERSION` (affiché dans la barre de titre) dérive
+de `package.json` : il n'y a plus aucun numéro à recopier à la main.
+
+Le bump doit être **fusionné sur `master` avant** de poser le tag : le tag pointe un commit, et
+c'est le contenu de ce commit qui part en build.
+
+### Le tag déclenche les deux builds
+
 Un **tag `desktop-vX.Y.Z`** (ou *Run workflow* manuel) déclenche **les deux** builds en
 parallèle, chacun sur son OS natif (un `.exe` ne se compile pas depuis macOS, ni l'inverse) :
 
@@ -135,6 +161,12 @@ parallèle, chacun sur son OS natif (un `.exe` ne se compile pas depuis macOS, n
 
 ⚠️ Ces workflows **ne se déclenchent pas** sur push `master` (pas d'interférence avec
 l'OTA mobile `eas-update.yml`).
+
+🪤 **Un build de tag ne se rejoue pas.** Si un build échoue, corriger puis relancer le job
+rejouera le **commit du tag**, donc le même échec. Les issues : déplacer le tag (supprimer +
+recréer — à ne faire que si aucune Release publique n'en dépend), ou monter en `X.Y.Z+1`.
+Un *Run workflow* manuel sur `master` dépanne pour obtenir l'artefact, mais celui-ci n'est
+alors plus rattaché au tag — provenance à mentionner si l'artefact est publié.
 
 Build local (sur la machine correspondante) :
 ```bash
