@@ -33,10 +33,35 @@ describe('cohérence des versions', () => {
   });
 
   it('Cargo.lock suit Cargo.toml (sinon `cargo --locked` échoue en CI)', () => {
-    expect(/name = "hilal-desktop"\nversion = "(.+)"/.exec(cargoLock)?.[1]).toBe(version);
+    // 🪤 `\r?\n` et non `\n` : les runners Windows retirent le dépôt en CRLF (autocrlf),
+    // et un `\n` littéral ne matche alors RIEN. Un `\n` en dur ici a fait échouer le
+    // build Windows de `desktop-v1.2.0` — sur une machine macOS ou Linux, le test
+    // passait. Toute regex appliquée à un fichier du dépôt doit tolérer les deux fins
+    // de ligne.
+    expect(/name = "hilal-desktop"\r?\nversion = "(.+)"/.exec(cargoLock)?.[1]).toBe(version);
   });
 
   it('tauri.conf.json annonce la même version (elle finit dans les binaires)', () => {
     expect(JSON.parse(tauriConf).version).toBe(version);
   });
+});
+
+// Les fichiers du dépôt arrivent en CRLF sur un runner Windows (autocrlf) et en LF
+// ailleurs. Ces cas figent le comportement des DEUX regex sur les deux fins de ligne,
+// sans dépendre de la plateforme qui exécute la suite.
+describe('les regex de version tolèrent CRLF et LF', () => {
+  const CARGO_LOCK = (eol: string) =>
+    ['[[package]]', 'name = "hilal-desktop"', 'version = "9.9.9"', 'dependencies = ['].join(eol);
+  const CARGO_TOML = (eol: string) =>
+    ['[package]', 'name = "hilal-desktop"', 'version = "9.9.9"', '', '[dependencies]'].join(eol);
+
+  for (const [nom, eol] of [['LF', '\n'], ['CRLF', '\r\n']] as const) {
+    it(`Cargo.lock en ${nom}`, () => {
+      const m = /name = "hilal-desktop"\r?\nversion = "(.+)"/.exec(CARGO_LOCK(eol));
+      expect(m?.[1]).toBe('9.9.9');
+    });
+    it(`Cargo.toml en ${nom}`, () => {
+      expect(/^version = "(.+)"$/m.exec(CARGO_TOML(eol))?.[1]).toBe('9.9.9');
+    });
+  }
 });
