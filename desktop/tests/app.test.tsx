@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Metrics, Proc, ProcList } from '../src/lib/metrics';
+import pkg from '../package.json';
 
 const box = vi.hoisted(() => ({
   metrics: null as unknown as Metrics,
@@ -97,7 +98,7 @@ describe('rendu initial', () => {
   it('affiche la marque, la version et le témoin « Direct »', async () => {
     render(<App />);
     expect(await screen.findByText(/HILAL/)).toBeTruthy();
-    expect(screen.getByText('v1.1.0')).toBeTruthy();
+    expect(screen.getByText(`v${pkg.version}`)).toBeTruthy();
     expect(screen.getByText('Direct')).toBeTruthy();
   });
 
