@@ -308,11 +308,30 @@ mod tests {
         let mut system = sysinfo::System::new();
         let mut sampler = ProcSampler::new();
         sampler.collect(&mut system, "cpu", "", 500);
-        let tout = sampler.collect(&mut system, "cpu", "", 500);
+
+        // 🪤 Tout se vérifie DANS UN SEUL appel. Une version antérieure comparait
+        // `total` entre deux `collect` successifs : le système en gagne ou en perd
+        // entre-temps (échec observé à 1030 vs 1032) — un test bancal qui passait
+        // par chance, CI comprise. On ne compare jamais deux échantillons vivants.
         let filtre = sampler.collect(&mut system, "cpu", "zzz-inexistant-zzz", 500);
-        assert_eq!(filtre.total, tout.total, "le total ignore le filtre");
+        assert!(filtre.total > 5, "`total` compte TOUS les processus, filtre ignoré");
         assert_eq!(filtre.matched, 0, "aucun processus ne porte ce nom");
         assert!(filtre.items.is_empty());
+
+        // Un filtre qui correspond forcément : le nom du binaire de test lui-même.
+        let moi = std::process::id();
+        let cible = sampler
+            .collect(&mut system, "cpu", "", 500)
+            .items
+            .iter()
+            .find(|p| p.pid == moi)
+            .map(|p| p.name.clone());
+        if let Some(nom) = cible {
+            let vu = sampler.collect(&mut system, "cpu", &nom, 500);
+            assert!(vu.matched >= 1, "le filtre « {nom} » doit trouver au moins ce test");
+            assert!(vu.matched <= vu.total, "les correspondances sont un sous-ensemble");
+            assert!(vu.items.iter().all(|p| p.name.to_lowercase().contains(&nom.to_lowercase())));
+        }
     }
 
     #[test]

@@ -110,6 +110,14 @@ impl EnergyMeter {
     /// Renvoie la puissance en watts par PID. `elapsed` en secondes.
     pub fn sample(&mut self, pids: &[u32], elapsed: f64) -> HashMap<u32, f64> {
         let mut out = HashMap::new();
+        // Hors macOS aucune mesure d'énergie n'existe : la table reste vide et
+        // `energyScore()` (TypeScript, pur et testé) fournit une estimation, étiquetée
+        // comme telle dans l'interface. Ce `let _` consomme explicitement les
+        // paramètres et emprunte `out` — sans lui, la compilation Linux émet deux
+        // warnings (`unused_variables` sur `elapsed`, `unused_mut` sur `out`) que le
+        // build macOS ne peut pas voir.
+        #[cfg(not(target_os = "macos"))]
+        let _ = (pids, elapsed, &mut out, &mut self.previous);
         #[cfg(target_os = "macos")]
         {
             let mut current = HashMap::with_capacity(pids.len());
@@ -132,10 +140,6 @@ impl EnergyMeter {
             // On repart de la photo courante : les PID morts disparaissent d'eux-mêmes,
             // la table ne peut pas croître sans fin.
             self.previous = current;
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (pids, &mut self.previous);
         }
         out
     }
