@@ -6,12 +6,16 @@
 //                illisibles sur verre clair, on les assombrit en mode `light`.
 // Copie autonome (le desktop n'importe rien hors de desktop/ — isolation build CI).
 export type Mode = 'dark' | 'light';
-export type Accent = 'blue' | 'green' | 'red';
+// 🪤 L'accent « rouge » a été REMPLACÉ par un gris le 2026-09-03 : il valait
+// exactement `crit` dans les deux thèmes, si bien que le dégradé des jauges (base ->
+// rouge) était rigoureusement invisible avec cet accent. Le gris est neutre et laisse
+// toute sa lisibilité au virage vers le rouge.
+export type Accent = 'blue' | 'green' | 'gray';
 
 export const ACCENT_LIST: { id: Accent; key: string }[] = [
   { id: 'blue', key: 'accentBlue' },
   { id: 'green', key: 'accentGreen' },
-  { id: 'red', key: 'accentRed' },
+  { id: 'gray', key: 'accentGray' },
 ];
 
 export type AccentTokens = {
@@ -28,18 +32,18 @@ export type AccentTokens = {
 const ACCENTS_DARK: Record<Accent, AccentTokens> = {
   blue: { acc: '#22D3EE', accSoft: 'rgba(34,211,238,.5)', accGlow: 'rgba(34,211,238,.18)', onAcc: '#04070C' },
   green: { acc: '#4ADE80', accSoft: 'rgba(74,222,128,.5)', accGlow: 'rgba(74,222,128,.18)', onAcc: '#04070C' },
-  red: { acc: '#FB7185', accSoft: 'rgba(251,113,133,.5)', accGlow: 'rgba(251,113,133,.18)', onAcc: '#04070C' },
+  gray: { acc: '#94A3B8', accSoft: 'rgba(148,163,184,.5)', accGlow: 'rgba(148,163,184,.18)', onAcc: '#04070C' },
 };
 
 const ACCENTS_LIGHT: Record<Accent, AccentTokens> = {
   blue: { acc: '#0E7490', accSoft: 'rgba(14,116,144,.45)', accGlow: 'rgba(14,116,144,.14)', onAcc: '#F8FAFC' },
   green: { acc: '#15803D', accSoft: 'rgba(21,128,61,.45)', accGlow: 'rgba(21,128,61,.14)', onAcc: '#F8FAFC' },
-  red: { acc: '#BE123C', accSoft: 'rgba(190,18,60,.45)', accGlow: 'rgba(190,18,60,.14)', onAcc: '#F8FAFC' },
+  gray: { acc: '#475569', accSoft: 'rgba(71,85,105,.45)', accGlow: 'rgba(71,85,105,.14)', onAcc: '#F8FAFC' },
 };
 
 /** Pastille du sélecteur : toujours la version néon, pour rester reconnaissable. */
 export const ACCENT_SWATCH: Record<Accent, string> = {
-  blue: '#22D3EE', green: '#4ADE80', red: '#FB7185',
+  blue: '#22D3EE', green: '#4ADE80', gray: '#94A3B8',
 };
 
 export const getAccent = (m: Mode, a: Accent): AccentTokens =>

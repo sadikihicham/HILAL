@@ -40,7 +40,7 @@
     "targets": "all",
     "category": "Utility",
     "shortDescription": "Moniteur matériel local",
-    "longDescription": "HILAL Desktop — moniteur matériel PC en lecture seule, 100% local, zéro réseau sortant.",
+    "longDescription": "HILAL Desktop — moniteur matériel PC 100% local, zéro réseau sortant. Températures, ventilateurs, processus et arrêt de processus.",
     "macOS": {
       "minimumSystemVersion": "10.15"
     },

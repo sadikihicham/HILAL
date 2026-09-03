@@ -5,18 +5,34 @@ import {
 } from './lib/theme';
 import { fmtBytes, loadColor, pct } from './lib/format';
 import { LANGS, isRTL, t, type Lang } from './lib/i18n';
-import { fetchMetrics, inTauri, type Metrics } from './lib/metrics';
 import {
-  areaPoints, avg, clamp01, fmtRate, fmtUptime, frac, healthScore, loadLevel, polyPoints, primaryDisk,
-  type Health, type HealthLevel, type LoadLevel,
+  fetchMetrics, fetchProcesses, inTauri, killProcess,
+  setTrayLabel, setTrayMenuLabels, setTrayVisible,
+  type Metrics, type Proc, type ProcList, type ProcSort,
+} from './lib/metrics';
+import {
+  areaPoints, avg, clamp01, energyScore, fanFrac, fmtRate, fmtUptime, frac, healthScore,
+  gaugeColor, gaugeGradient, gaugeScale, isCriticalProcess, loadLevel, polyPoints, primaryDisk,
+  tempFrac, thermalSummary, TRAY_METRICS, trayText,
+  type Health, type HealthLevel, type LoadLevel, type ThermalSummary, type TrayMetric,
 } from './lib/compute';
 
 const LANG_KEY = 'app.lang';
 const MODE_KEY = 'theme.mode';
 const ACCENT_KEY = 'display.accent';
 const VIEW_KEY = 'nav.view';
+const TRAY_KEY = 'tray.metric';
+const PROC_SORT_KEY = 'proc.sort';
 
 const POLL_MS = 1000;    // 1 Hz — cohérent avec « ÉCHANTILLONNAGE 1 Hz » de la barre d'état.
+// Les processus se sondent DEUX FOIS moins vite que le reste : l'énumération complète
+// est la lecture la plus chère du backend, et une liste qui se réordonne chaque seconde
+// est illisible — on ne peut pas viser une ligne qui bouge.
+const PROC_POLL_MS = 2000;
+const PROC_LIMIT = 200;
+// Anti-rafale sur la recherche : sans cela, chaque frappe déclencherait une énumération
+// complète des processus.
+const FILTER_DEBOUNCE_MS = 250;
 const HISTORY_MAX = 60;  // 60 points à 1 Hz = la « fenêtre 60 s » annotée sur le graphique.
 const CHART_W = 460;
 const CHART_H = 180;
@@ -25,13 +41,16 @@ const RING_C = 2 * Math.PI * RING_R;
 // Affichage seul — à garder en phase à la main avec package.json / tauri.conf.json.
 const APP_VERSION = 'v1.1.0';
 
-type View = 'overview' | 'system' | 'cores' | 'settings';
+type View = 'overview' | 'system' | 'cores' | 'processes' | 'settings';
 type Disk = Metrics['disks'][number];
 type Styles = ReturnType<typeof makeStyles>;
 
 const HEALTH_KEY: Record<HealthLevel, string> = { good: 'healthGood', fair: 'healthFair', poor: 'healthPoor' };
 const LEVEL_KEY: Record<LoadLevel, string> = { ok: 'nominal', warn: 'high', crit: 'saturated' };
 const MODES: { id: Mode; key: string }[] = [{ id: 'dark', key: 'dark' }, { id: 'light', key: 'light' }];
+const TRAY_KEY_LABEL: Record<TrayMetric, string> = {
+  off: 'trayOff', cpu: 'trayCpu', ram: 'trayRam', temp: 'trayTemp', net: 'trayNet', battery: 'trayBattery',
+};
 
 // ─────────────────────────────────────────────────────────── icônes (SVG inline)
 
@@ -55,6 +74,7 @@ const NAV: { id: View; key: string; glyph: ReactNode }[] = [
   { id: 'overview', key: 'navOverview', glyph: <path d="M3 13h4l2.5 6L14 5l2.5 8H21" /> },
   { id: 'system', key: 'navSystem', glyph: <><rect x="3" y="4" width="18" height="12" rx="1.5" /><path d="M8 20h8" /></> },
   { id: 'cores', key: 'navCores', glyph: <path d="M4 18V9M10 18V5M16 18v-6M22 18v-9" /> },
+  { id: 'processes', key: 'navProcesses', glyph: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18M8 4v16" /></> },
   { id: 'settings', key: 'navSettings', glyph: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" /></> },
 ];
 
@@ -81,15 +101,65 @@ const mockMetrics = (): Metrics => {
     battery: { level: 0.8, state: 'discharging' },
     system: { name: 'macOS', osVersion: '26.1', kernel: '26.1.0', host: 'MacBook Pro 16"', arch: 'aarch64', uptime: 22 * 3600 },
     ip: '192.168.1.42',
+    // Reproduit la forme RÉELLE mesurée sur Apple Silicon, capteurs aberrants compris :
+    // sans eux, l'aperçu navigateur ne montrerait jamais le filtrage à l'œuvre.
+    thermal: {
+      components: [
+        { label: 'PMU tdie1', temp: 38 + Math.random() * 6 },
+        { label: 'PMU tdie6', temp: 40 + Math.random() * 6 },
+        { label: 'PMU tdev1', temp: -9201.14 },
+        { label: 'PMU tdev3', temp: -9201.14 },
+        { label: 'gas gauge battery', temp: 32 + Math.random() },
+        { label: 'NAND CH0 temp', temp: 35 + Math.random() * 2 },
+      ],
+      fans: [
+        { label: '1', rpm: Math.round(Math.random() * 400), min: 1350, max: 5349 },
+        { label: '2', rpm: Math.round(Math.random() * 400), min: 1350, max: 5349 },
+      ],
+      fansSupported: true,
+      tempsSupported: true,
+    },
   };
+};
+
+// Processus de démonstration pour l'aperçu navigateur. `watts` renseigné pour montrer
+// la colonne « mesuré » ; une ligne à null illustre la bascule vers l'estimation.
+const mockProcs = (sort: ProcSort, filter: string): ProcList => {
+  const base: Proc[] = [
+    { pid: 412, name: 'firefox', cpu: 62.4, mem: 1.8 * 2 ** 30, diskRead: 120e3, diskWrite: 40e3, watts: 3.2, user: 'sadiki', mine: true, isSelf: false, runTime: 7200, status: 'Run' },
+    { pid: 980, name: 'node', cpu: 31.7, mem: 640 * 2 ** 20, diskRead: 2e6, diskWrite: 5e5, watts: 1.4, user: 'sadiki', mine: true, isSelf: false, runTime: 1800, status: 'Run' },
+    { pid: 143, name: 'WindowServer', cpu: 12.2, mem: 420 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: 0.9, user: 'root', mine: false, isSelf: false, runTime: 86400, status: 'Run' },
+    { pid: 1, name: 'launchd', cpu: 0.1, mem: 24 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: null, user: 'root', mine: false, isSelf: false, runTime: 86400, status: 'Sleep' },
+    { pid: 7788, name: 'hilal-desktop', cpu: 1.9, mem: 120 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: 0.2, user: 'sadiki', mine: true, isSelf: true, runTime: 300, status: 'Run' },
+  ];
+  const needle = filter.trim().toLowerCase();
+  const items = base.filter((p) => !needle || p.name.toLowerCase().includes(needle) || String(p.pid).includes(needle));
+  const by: Record<ProcSort, (a: Proc, b: Proc) => number> = {
+    cpu: (a, b) => b.cpu - a.cpu,
+    mem: (a, b) => b.mem - a.mem,
+    energy: (a, b) => (b.watts ?? -1) - (a.watts ?? -1),
+    disk: (a, b) => (b.diskRead + b.diskWrite) - (a.diskRead + a.diskWrite),
+    name: (a, b) => a.name.localeCompare(b.name),
+    pid: (a, b) => a.pid - b.pid,
+  };
+  return { total: base.length, matched: items.length, items: [...items].sort(by[sort]), energyMeasured: true };
 };
 
 // ─────────────────────────────────────────────────────────────── primitives HUD
 
-function Bar({ value, color, st, h = 5 }: { value: number; color: string; st: Styles; h?: number }) {
+function Bar({ value, color, st, h = 5, gradient }: {
+  value: number; color: string; st: Styles; h?: number; gradient?: string;
+}) {
+  const f = clamp01(value);
+  // Le dégradé est calé sur la PISTE via `gaugeScale`, pas sur le remplissage :
+  // sinon un remplissage à 10 % comprimerait tout le dégradé dans ces 10 % et la
+  // tête de jauge serait rouge dès la première valeur.
+  const paint: CSSProperties = gradient
+    ? { backgroundImage: gradient, backgroundSize: gaugeScale(f), backgroundRepeat: 'no-repeat' }
+    : { background: color };
   return (
     <div style={{ ...st.track, height: h }}>
-      <div style={{ ...st.fill, width: `${Math.max(2, clamp01(value) * 100)}%`, background: color }} />
+      <div style={{ ...st.fill, width: `${Math.max(2, f * 100)}%`, ...paint }} />
     </div>
   );
 }
@@ -108,9 +178,9 @@ function InfoRow({ label, value, st }: { label: string; value: string; st: Style
 }
 
 /** Ligne de liste du design (« Top consumers ») : pastille · nom · valeur · jauge · état. */
-function ListRow({ badge, name, sub, value, f, lang, st, th, ac }: {
+function ListRow({ badge, name, sub, value, f, lang, st, th, ac, gradient, valueColor }: {
   badge: string; name: string; sub?: string; value: string; f: number;
-  lang: Lang; st: Styles; th: Theme; ac: AccentTokens;
+  lang: Lang; st: Styles; th: Theme; ac: AccentTokens; gradient: string; valueColor: string;
 }) {
   const lvl = loadLevel(f);
   const lvlColor = lvl === 'crit' ? th.crit : lvl === 'warn' ? th.warn : th.good;
@@ -121,8 +191,8 @@ function ListRow({ badge, name, sub, value, f, lang, st, th, ac }: {
         <div style={st.listName}>{name}</div>
         {sub ? <div style={st.listSub}>{sub}</div> : null}
       </div>
-      <div style={{ ...st.listValue, color: f > 0.2 ? ac.acc : th.textPrimary }}>{value}</div>
-      <Bar value={f} color={ac.acc} st={st} />
+      <div style={{ ...st.listValue, color: valueColor }}>{value}</div>
+      <Bar value={f} color={ac.acc} st={st} gradient={gradient} />
       <div style={{ ...st.listState, color: lvlColor, boxShadow: `inset 0 0 0 1px ${lvlColor}55` }}>{t(LEVEL_KEY[lvl], lang)}</div>
     </div>
   );
@@ -190,7 +260,12 @@ type Ctx = {
   m: Metrics; st: Styles; th: Theme; ac: AccentTokens; lang: Lang;
   cpuHist: number[]; ramHist: number[];
   disk: Disk | null; cpuFrac: number; ramFrac: number; diskFrac: number; swapFrac: number;
-  health: Health;
+  health: Health; thermal: ThermalSummary;
+  /** Dégradé de jauge : couleur de base à gauche, rouge à droite. Identique partout. */
+  grad: string;
+  /** Couleur d'une VALEUR selon son pourcentage — mêmes paliers que `grad`, pour que
+   *  le chiffre et la tête de jauge ne se contredisent jamais. */
+  gcol: (f: number) => string;
 };
 
 const batteryStateLabel = (state: string, lang: Lang) =>
@@ -207,7 +282,7 @@ const diskBadge = (d: Disk) => (d.mount.match(/[A-Za-z]/)?.[0] ?? d.name.charAt(
 // ────────────────────────────────────────────────────────────────── vue « CPU »
 
 function CpuPanel({ c }: { c: Ctx }) {
-  const { m, st, th, ac, lang, cpuFrac, swapFrac } = c;
+  const { m, st, th, ac, lang, cpuFrac, swapFrac, grad, gcol } = c;
   const idle = 1 - cpuFrac;
   const peak = m.cpu.perCore.length ? Math.max(...m.cpu.perCore) : m.cpu.usage;
   const restart = m.system.uptime >= 14 * 86400;
@@ -243,17 +318,17 @@ function CpuPanel({ c }: { c: Ctx }) {
         <div style={st.trioTile}>
           <div style={st.trioHead}>
             <span style={st.microLabel}>{t('cores', lang)}</span>
-            <span style={st.trioValue}>{m.cpu.cores}</span>
+            <span style={{ ...st.trioValue, color: gcol(peak / 100) }}>{m.cpu.cores}</span>
           </div>
-          <Bar value={peak / 100} color={loadColor(peak / 100, true, th)} st={st} />
+          <Bar value={peak / 100} color={loadColor(peak / 100, true, th)} st={st} gradient={grad} />
           <div style={st.trioCaption}>{t('peak', lang)} {Math.round(peak)}%</div>
         </div>
         <div style={st.trioTile}>
           <div style={st.trioHead}>
             <span style={st.microLabel}>{t('swap', lang)}</span>
-            <span style={{ ...st.trioValue, color: swapFrac > 0.5 ? th.crit : th.textPrimary }}>{pct(swapFrac)}</span>
+            <span style={{ ...st.trioValue, color: gcol(swapFrac) }}>{pct(swapFrac)}</span>
           </div>
-          <Bar value={swapFrac} color={loadColor(swapFrac, true, th)} st={st} />
+          <Bar value={swapFrac} color={loadColor(swapFrac, true, th)} st={st} gradient={grad} />
           <div style={st.trioCaption}>
             {m.swap.total > 0 ? `${fmtBytes(m.swap.used)} / ${fmtBytes(m.swap.total)}` : t('swapIdle', lang)}
           </div>
@@ -261,9 +336,9 @@ function CpuPanel({ c }: { c: Ctx }) {
         <div style={st.trioTile}>
           <div style={st.trioHead}>
             <span style={st.microLabel}>{t('uptime', lang)}</span>
-            <span style={st.trioValue}>{fmtUptime(m.system.uptime)}</span>
+            <span style={{ ...st.trioValue, color: gcol(m.system.uptime / (14 * 86400)) }}>{fmtUptime(m.system.uptime)}</span>
           </div>
-          <Bar value={m.system.uptime / (14 * 86400)} color={restart ? th.warn : th.textMuted} st={st} />
+          <Bar value={m.system.uptime / (14 * 86400)} color={restart ? th.warn : th.textMuted} st={st} gradient={grad} />
           <div style={st.trioCaption}>{restart ? t('restartAdvised', lang) : t('stable', lang)}</div>
         </div>
       </div>
@@ -273,8 +348,9 @@ function CpuPanel({ c }: { c: Ctx }) {
 
 // ─────────────────────────────────────────────────── tuile de métrique (2×2 droite)
 
-function MetricTile({ glyph, title, value, unit, f, st, ac }: {
-  glyph: ReactNode; title: string; value: string; unit: string; f: number; st: Styles; ac: AccentTokens;
+function MetricTile({ glyph, title, value, unit, f, st, ac, gradient, valueColor }: {
+  glyph: ReactNode; title: string; value: string; unit: string; f: number;
+  st: Styles; ac: AccentTokens; gradient: string; valueColor: string;
 }) {
   return (
     <div style={st.metricTile}>
@@ -282,8 +358,8 @@ function MetricTile({ glyph, title, value, unit, f, st, ac }: {
         <span style={{ color: ac.acc, display: 'flex' }}><Icon size={15}>{glyph}</Icon></span>
         <span style={st.metricTitle}>{title}</span>
       </div>
-      <div style={st.metricValue}>{value} <span style={st.metricUnit}>{unit}</span></div>
-      <Bar value={f} color={ac.acc} st={st} h={4} />
+      <div style={{ ...st.metricValue, color: valueColor }}>{value} <span style={st.metricUnit}>{unit}</span></div>
+      <Bar value={f} color={ac.acc} st={st} h={4} gradient={gradient} />
     </div>
   );
 }
@@ -293,7 +369,7 @@ function MetricTile({ glyph, title, value, unit, f, st, ac }: {
 function Overview({ c, onCopy, onRefresh, copied }: {
   c: Ctx; onCopy: () => void; onRefresh: () => void; copied: boolean;
 }) {
-  const { m, st, th, ac, lang, disk, ramFrac, diskFrac, health } = c;
+  const { m, st, th, ac, lang, disk, ramFrac, diskFrac, health, grad, gcol } = c;
   const volumes = m.disks.filter((d) => d.total > 0);
   const statusColor = health.level === 'good' ? th.good : health.level === 'fair' ? th.warn : th.crit;
   return (
@@ -320,16 +396,18 @@ function Overview({ c, onCopy, onRefresh, copied }: {
           <MetricTile glyph={DiskGlyph} title={disk ? disk.name || disk.mount : t('disk', lang)}
             value={disk ? fmtBytes(disk.available).split(' ')[0] : '—'}
             unit={disk ? `${fmtBytes(disk.available).split(' ')[1]} ${t('free', lang)}` : ''}
-            f={diskFrac} st={st} ac={ac} />
+            f={diskFrac} st={st} ac={ac} gradient={grad} valueColor={gcol(diskFrac)} />
           <MetricTile glyph={MemGlyph} title={t('ram', lang)} value={String(Math.round(ramFrac * 100))}
-            unit={t('pressure', lang)} f={ramFrac} st={st} ac={ac} />
+            unit={t('pressure', lang)} f={ramFrac} st={st} ac={ac} gradient={grad} valueColor={gcol(ramFrac)} />
           <MetricTile glyph={BatteryGlyph} title={t('battery', lang)}
             value={m.battery ? String(Math.round(m.battery.level * 100)) : '—'}
             unit={m.battery ? `% · ${batteryStateLabel(m.battery.state, lang)}` : t('noBattery', lang)}
-            f={m.battery ? m.battery.level : 0} st={st} ac={ac} />
+            f={m.battery ? m.battery.level : 0} st={st} ac={ac} gradient={grad}
+            valueColor={gcol(m.battery ? m.battery.level : 0)} />
           <MetricTile glyph={NetGlyph} title={t('network', lang)} value={fmtRate(m.net.rxRate)}
             unit={`↓ · ${fmtRate(m.net.txRate)} ↑`}
-            f={clamp01(m.net.rxRate / (5 * 2 ** 20))} st={st} ac={ac} />
+            f={clamp01(m.net.rxRate / (5 * 2 ** 20))} st={st} ac={ac} gradient={grad}
+            valueColor={gcol(clamp01(m.net.rxRate / (5 * 2 ** 20)))} />
         </div>
 
         <Panel st={st} style={st.privacyPanel}>
@@ -356,7 +434,9 @@ function Overview({ c, onCopy, onRefresh, copied }: {
         </Panel>
       </div>
 
-      <Panel st={st} style={st.listPanel}>
+      <ThermalPanel c={c} />
+
+      <Panel st={st} style={st.halfPanel}>
         <div style={st.panelHead}>
           <div style={st.listHeadLeft}>
             <span style={st.panelTitle}>{t('volumes', lang)}</span>
@@ -369,12 +449,230 @@ function Overview({ c, onCopy, onRefresh, copied }: {
             const f = frac(d.total - d.available, d.total);
             return (
               <ListRow key={`${d.name}-${d.mount}`} badge={diskBadge(d)} name={d.name || d.mount} sub={d.mount}
-                value={pct(f)} f={f} lang={lang} st={st} th={th} ac={ac} />
+                value={pct(f)} f={f} lang={lang} st={st} th={th} ac={ac} gradient={grad} valueColor={gcol(f)} />
             );
           })}
         </div>
       </Panel>
     </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────── carte thermique
+
+function TempTile({ labelKey, celsius, st, th, lang, gradient, valueColor }: {
+  labelKey: string; celsius: number | null; st: Styles; th: Theme; lang: Lang;
+  gradient: string; valueColor: string;
+}) {
+  // Le chiffre suit la MÊME échelle que sa jauge (`tempFrac`), pas les paliers
+  // discrets de `tempLevel` : sinon le nombre et la barre se contrediraient.
+  const color = celsius === null ? th.textMuted : valueColor;
+  return (
+    <div style={st.trioTile}>
+      <div style={st.trioHead}>
+        <span style={st.microLabel}>{t(labelKey, lang)}</span>
+        {/* Tiret cadratin = capteur ABSENT. Un « 0 °C » se lirait comme une mesure. */}
+        <span style={{ ...st.trioValue, color }}>{celsius === null ? '—' : `${Math.round(celsius)}°C`}</span>
+      </div>
+      <Bar value={celsius === null ? 0 : tempFrac(celsius)} color={color} st={st} gradient={gradient} />
+    </div>
+  );
+}
+
+function ThermalPanel({ c }: { c: Ctx }) {
+  const { m, st, th, ac, lang, thermal, grad, gcol } = c;
+  const { fans, fansSupported, tempsSupported } = m.thermal;
+  return (
+    <Panel st={st} style={st.halfPanel}>
+      <div style={st.panelHead}>
+        <div style={st.listHeadLeft}>
+          <span style={st.panelTitle}>{t('thermal', lang)}</span>
+          {/* Le nombre de capteurs écartés est AFFICHÉ, pas masqué : sur Apple Silicon
+              plus d'un capteur sur deux est un slot vide à -9201 °C, et l'utilisateur
+              doit pouvoir auditer d'où sort le chiffre retenu. */}
+          <span style={st.panelMeta}>
+            {thermal.rows.length} {t('sensors', lang)}
+            {thermal.dropped > 0 ? ` · ${thermal.dropped} ${t('sensorsDropped', lang)}` : ''}
+          </span>
+        </div>
+        {thermal.hottest ? (
+          <span style={st.panelMeta}>{t('hottest', lang)} {Math.round(thermal.hottest.temp)}°C</span>
+        ) : null}
+      </div>
+
+      {tempsSupported ? (
+        <div style={st.trioGrid}>
+          {([['cpuTemp', thermal.cpu], ['batteryTemp', thermal.battery], ['storageTemp', thermal.storage]] as const).map(([k, v]) => (
+            <TempTile key={k} labelKey={k} celsius={v} st={st} th={th} lang={lang}
+              gradient={grad} valueColor={gcol(v === null ? 0 : tempFrac(v))} />
+          ))}
+        </div>
+      ) : (
+        <div style={st.emptyNote}>{t('tempsUnavailable', lang)}</div>
+      )}
+
+      <div style={st.panelHead}>
+        <span style={st.panelTitle}>{t('fans', lang)}</span>
+        <span style={st.panelMeta}>{t('fanUnit', lang)}</span>
+      </div>
+      {!fansSupported ? (
+        <div style={st.emptyNote}>{t('fansUnavailable', lang)}</div>
+      ) : fans.length === 0 ? (
+        <div style={st.emptyNote}>{t('fansNone', lang)}</div>
+      ) : (
+        <div style={st.listBody}>
+          {fans.map((f) => (
+            <ListRow key={f.label} badge={f.label} name={`${t('fanLabel', lang)} ${f.label}`}
+              sub={f.max ? `${f.min ?? 0}–${f.max} ${t('fanUnit', lang)}` : undefined}
+              // 0 tr/min est une LECTURE VALIDE (ventilateur à l'arrêt sur machine
+              // froide, mesuré sur M5 Pro), pas une donnée manquante.
+              value={f.rpm === 0 ? t('fanStopped', lang) : `${f.rpm} ${t('fanUnit', lang)}`}
+              f={fanFrac(f.rpm, f.min, f.max)} lang={lang} st={st} th={th} ac={ac}
+              gradient={grad} valueColor={gcol(fanFrac(f.rpm, f.min, f.max))} />
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────── vue « Processus »
+
+const PROC_COLS: { id: ProcSort; key: string }[] = [
+  { id: 'cpu', key: 'colCpu' },
+  { id: 'mem', key: 'colRam' },
+  { id: 'energy', key: 'colEnergy' },
+  { id: 'disk', key: 'colDisk' },
+];
+
+function ProcessesView({ c, procs, sort, filter, onSort, onFilter, onKill, busyPid, notice }: {
+  c: Ctx; procs: ProcList | null; sort: ProcSort; filter: string;
+  onSort: (s: ProcSort) => void; onFilter: (v: string) => void;
+  onKill: (pid: number, force: boolean) => void;
+  busyPid: number | null; notice: string | null;
+}) {
+  const { st, th, ac, lang } = c;
+  // Confirmation À DEUX TEMPS, portée par la ligne elle-même. Pas de `window.confirm` :
+  // une modale native bloque le webview et gèlerait le sondage en arrière-plan.
+  const [confirm, setConfirm] = useState<{ pid: number; force: boolean } | null>(null);
+  const [openPid, setOpenPid] = useState<number | null>(null);
+
+  const sortBtn = (id: ProcSort, label: string) => (
+    <button key={id} className="hud-hoverable" onClick={() => onSort(id)}
+      style={{ ...st.procTh, ...(sort === id ? { color: ac.acc } : null) }}>
+      {label}{sort === id ? ' ↓' : ''}
+    </button>
+  );
+
+  return (
+    <Panel st={st} style={st.stackPanel}>
+      <div style={st.panelHead}>
+        <div style={st.listHeadLeft}>
+          <span style={st.panelTitle}>{t('processes', lang)}</span>
+          <span style={st.panelMeta}>
+            {procs ? `${procs.items.length} ${t('procShowing', lang)} ${t('procOf', lang)} ${procs.matched}` : '…'}
+          </span>
+        </div>
+        <span style={st.panelMeta}>{procs?.energyMeasured ? t('measured', lang) : t('estimated', lang)}</span>
+      </div>
+
+      <input value={filter} onChange={(e) => onFilter(e.target.value)}
+        placeholder={t('procSearch', lang)} style={st.search} spellCheck={false} />
+
+      {notice ? <div style={{ ...st.emptyNote, color: ac.acc }}>{t(notice, lang)}</div> : null}
+
+      <div style={st.procHead}>
+        {sortBtn('name', t('colName', lang))}
+        {PROC_COLS.map((col) => sortBtn(col.id, t(col.key, lang)))}
+        <span style={st.procTh} />
+      </div>
+
+      <div style={st.listBody}>
+        {!procs ? (
+          <div style={st.emptyNote}>{t('waiting', lang)}</div>
+        ) : procs.items.length === 0 ? (
+          <div style={st.emptyNote}>{t('procNone', lang)}</div>
+        ) : procs.items.map((p) => {
+          const critical = isCriticalProcess(p.name, p.pid);
+          const cpuFrac = clamp01(p.cpu / 100);
+          const io = p.diskRead + p.diskWrite;
+          const pending = confirm?.pid === p.pid;
+          const open = openPid === p.pid;
+          const warn = critical || !p.mine;
+          return (
+            <div key={p.pid} style={st.procRowWrap}>
+              <div className="hud-row" style={st.procRow}>
+                <button className="hud-hoverable" onClick={() => setOpenPid(open ? null : p.pid)}
+                  style={st.procNameBtn} title={String(p.pid)}>
+                  <span style={st.listName}>{p.name}</span>
+                  <span style={st.procSub}>
+                    {p.pid}
+                    {/* Avertissements, PAS des blocages : Hicham a tranché que le système
+                        d'exploitation reste seul juge des droits (2026-09-03). */}
+                    {critical ? <span style={{ ...st.procTag, color: th.crit }}>{t('procCritical', lang)}</span> : null}
+                    {!p.mine ? <span style={{ ...st.procTag, color: th.warn }}>{t('procOther', lang)}</span> : null}
+                    {p.isSelf ? <span style={{ ...st.procTag, color: ac.acc }}>{t('procSelf', lang)}</span> : null}
+                  </span>
+                </button>
+
+                <div style={st.procCell}>
+                  <span style={{ ...st.procNum, color: c.gcol(cpuFrac) }}>{p.cpu.toFixed(1)}%</span>
+                  <Bar value={cpuFrac} color={ac.acc} st={st} h={3} gradient={c.grad} />
+                </div>
+                <div style={st.procCell}><span style={st.procNum}>{fmtBytes(p.mem)}</span></div>
+                <div style={st.procCell}>
+                  {/* Watts RÉELS quand le noyau les fournit, score d'impact sinon —
+                      jamais les deux sous la même étiquette. */}
+                  <span style={st.procNum}>
+                    {p.watts !== null ? `${p.watts.toFixed(2)} W` : energyScore(p).toFixed(1)}
+                  </span>
+                  {p.watts === null ? <span style={st.procSub}>{t('estimated', lang)}</span> : null}
+                </div>
+                <div style={st.procCell}><span style={st.procNum}>{io > 0 ? fmtRate(io) : '—'}</span></div>
+
+                <div style={st.procActions}>
+                  {pending ? (
+                    <>
+                      <button className="hud-primary" disabled={busyPid === p.pid}
+                        onClick={() => { onKill(p.pid, confirm.force); setConfirm(null); }}
+                        style={{ ...st.procBtn, background: confirm.force ? th.crit : ac.acc, color: ac.onAcc }}>
+                        {t(confirm.force ? 'forceQuitProc' : 'quitProc', lang)} ✓
+                      </button>
+                      <button className="hud-hoverable" onClick={() => setConfirm(null)} style={st.procBtn}>
+                        {t('confirmCancel', lang)}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="hud-hoverable" onClick={() => setConfirm({ pid: p.pid, force: false })}
+                        style={{ ...st.procBtn, ...(warn ? { color: th.warn } : null) }}>{t('quitProc', lang)}</button>
+                      <button className="hud-hoverable" onClick={() => setConfirm({ pid: p.pid, force: true })}
+                        style={{ ...st.procBtn, color: th.crit }}>{t('forceQuitProc', lang)}</button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {pending ? (
+                <div style={{ ...st.procConfirm, color: confirm.force ? th.crit : th.textLabel }}>
+                  {t(confirm.force ? 'confirmForce' : 'confirmQuit', lang)}
+                </div>
+              ) : null}
+
+              {open ? (
+                <div style={st.procDetail}>
+                  <span>{t('colUser', lang)} : {p.user ?? '—'}</span>
+                  <span>{t('colStatus', lang)} : {p.status}</span>
+                  <span>{t('colTime', lang)} : {fmtUptime(p.runTime)}</span>
+                  <span>↓ {fmtRate(p.diskRead)} · ↑ {fmtRate(p.diskWrite)}</span>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <div style={st.footerNote}>{t('energyNote', lang)}</div>
+    </Panel>
   );
 }
 
@@ -416,7 +714,7 @@ function SystemView({ c }: { c: Ctx }) {
             return (
               <ListRow key={`${d.name}-${d.mount}`} badge={diskBadge(d)} name={d.name || d.mount}
                 sub={`${d.mount} · ${fmtBytes(d.available)} ${t('free', lang)} / ${fmtBytes(d.total)}`}
-                value={pct(f)} f={f} lang={lang} st={st} th={th} ac={ac} />
+                value={pct(f)} f={f} lang={lang} st={st} th={th} ac={ac} gradient={c.grad} valueColor={c.gcol(f)} />
             );
           })}
         </div>
@@ -447,15 +745,17 @@ function CoresView({ c }: { c: Ctx }) {
         <div style={st.coreGrid}>
           {m.cpu.perCore.map((u, i) => {
             const f = clamp01(u / 100);
+            const col = c.gcol(f);
+            // Le niveau nommé (nominal / élevé / saturé) reste par PALIERS : un mot ne
+            // se dégrade pas continûment, contrairement à une couleur.
             const lvl = loadLevel(f);
-            const col = lvl === 'crit' ? th.crit : lvl === 'warn' ? th.warn : ac.acc;
             return (
               <div key={i} style={st.coreCell}>
                 <div style={st.coreHead}>
                   <span style={st.microLabel}>{t('coreShort', lang)} {String(i).padStart(2, '0')}</span>
                   <span style={{ ...st.coreValue, color: col }}>{Math.round(u)}%</span>
                 </div>
-                <Bar value={f} color={col} st={st} />
+                <Bar value={f} color={col} st={st} gradient={c.grad} />
                 <div style={st.trioCaption}>{t(LEVEL_KEY[lvl], lang)}</div>
               </div>
             );
@@ -468,10 +768,10 @@ function CoresView({ c }: { c: Ctx }) {
 
 // ─────────────────────────────────────────────────────────────────── vue « Réglages »
 
-function SettingsView({ c, mode, accent, onLang, onMode, onAccent, onCopy, copied }: {
-  c: Ctx; mode: Mode; accent: Accent;
+function SettingsView({ c, mode, accent, tray, onLang, onMode, onAccent, onTray, onCopy, copied }: {
+  c: Ctx; mode: Mode; accent: Accent; tray: TrayMetric;
   onLang: (l: Lang) => void; onMode: (m: Mode) => void; onAccent: (a: Accent) => void;
-  onCopy: () => void; copied: boolean;
+  onTray: (v: TrayMetric) => void; onCopy: () => void; copied: boolean;
 }) {
   const { st, ac, lang } = c;
   const chip = (sel: boolean): CSSProperties => ({ ...st.chip, ...(sel ? { background: ac.accGlow, boxShadow: `inset 0 0 0 1px ${ac.accSoft}`, color: ac.acc } : null) });
@@ -510,6 +810,19 @@ function SettingsView({ c, mode, accent, onLang, onMode, onAccent, onCopy, copie
       </Panel>
 
       <Panel st={st} style={st.stackPanel}>
+        <div style={st.panelHead}><span style={st.panelTitle}>{t('trayIcon', lang)}</span></div>
+        <div style={st.chipRow}>
+          {TRAY_METRICS.map((o) => (
+            <button key={o} className="hud-hoverable" onClick={() => onTray(o)} style={chip(tray === o)}>
+              {t(TRAY_KEY_LABEL[o], lang)}
+            </button>
+          ))}
+        </div>
+        <div style={st.footerNote}>{t('trayHint', lang)}</div>
+        <div style={st.footerNote}>{t('trayCloseNote', lang)}</div>
+      </Panel>
+
+      <Panel st={st} style={st.stackPanel}>
         <div style={st.panelHead}><span style={st.panelTitle}>{t('actions', lang)}</span></div>
         <div style={st.btnRow}>
           <button className="hud-primary" onClick={onCopy}
@@ -538,7 +851,16 @@ export default function App() {
   const [view, setView] = useState<View>('overview');
   const [active, setActive] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [trayMetric, setTrayMetric] = useState<TrayMetric>('cpu');
+  const [procs, setProcs] = useState<ProcList | null>(null);
+  const [procSort, setProcSort] = useState<ProcSort>('cpu');
+  const [procFilter, setProcFilter] = useState('');
+  const [procQuery, setProcQuery] = useState('');
+  const [busyPid, setBusyPid] = useState<number | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const procTick = useRef<() => void>(() => {});
   const tickRef = useRef<() => void>(() => {});
 
   const th = getTheme(mode);
@@ -553,9 +875,16 @@ export default function App() {
     const md = localStorage.getItem(MODE_KEY);
     if (md === 'light' || md === 'dark') setMode(md);
     const a = localStorage.getItem(ACCENT_KEY);
-    if (a === 'blue' || a === 'green' || a === 'red') setAccent(a);
+    // 'red' : valeur d'une version antérieure encore présente dans le stockage —
+    // on la fait glisser sur le gris qui l'a remplacée plutôt que d'ignorer le réglage.
+    if (a === 'blue' || a === 'green' || a === 'gray') setAccent(a);
+    else if (a === 'red') { setAccent('gray'); localStorage.setItem(ACCENT_KEY, 'gray'); }
     const v = localStorage.getItem(VIEW_KEY);
-    if (v === 'overview' || v === 'system' || v === 'cores' || v === 'settings') setView(v);
+    if (v === 'overview' || v === 'system' || v === 'cores' || v === 'processes' || v === 'settings') setView(v);
+    const tm = localStorage.getItem(TRAY_KEY);
+    if (tm && (TRAY_METRICS as string[]).includes(tm)) setTrayMetric(tm as TrayMetric);
+    const ps = localStorage.getItem(PROC_SORT_KEY);
+    if (ps && ['cpu', 'mem', 'energy', 'disk', 'name', 'pid'].includes(ps)) setProcSort(ps as ProcSort);
   }, []);
 
   // Fond « plus rempli » quand la fenêtre est active (focus) ; plus translucide en
@@ -590,13 +919,63 @@ export default function App() {
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  // Nettoie le timer du libellé « copié » au démontage (évite un setState post-unmount).
-  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+  // Nettoie les timers au démontage (évite un setState post-unmount).
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+
+  // La frappe alimente `procFilter` (affichage immédiat) ; seule `procQuery` déclenche
+  // une énumération, après une pause de frappe.
+  useEffect(() => {
+    const id = setTimeout(() => setProcQuery(procFilter), FILTER_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [procFilter]);
+
+  // Sondage des processus UNIQUEMENT quand la vue est ouverte : refermer la vue
+  // supprime intégralement le coût d'énumération côté backend.
+  useEffect(() => {
+    if (view !== 'processes') { setProcs(null); return; }
+    let alive = true;
+    const run = async () => {
+      try {
+        const d = inTauri()
+          ? await fetchProcesses(procSort, procQuery, PROC_LIMIT)
+          : mockProcs(procSort, procQuery);
+        if (alive) setProcs(d);
+      } catch {
+        /* énumération échouée — on garde la liste précédente */
+      }
+    };
+    procTick.current = () => { void run(); };
+    void run();
+    const id = setInterval(run, PROC_POLL_MS);
+    return () => { alive = false; clearInterval(id); };
+  }, [view, procSort, procQuery]);
 
   const changeLang = (l: Lang) => { setLang(l); localStorage.setItem(LANG_KEY, l); };
   const changeMode = (v: Mode) => { setMode(v); localStorage.setItem(MODE_KEY, v); };
   const changeAccent = (a: Accent) => { setAccent(a); localStorage.setItem(ACCENT_KEY, a); };
   const changeView = (v: View) => { setView(v); localStorage.setItem(VIEW_KEY, v); };
+  const changeTray = (v: TrayMetric) => { setTrayMetric(v); localStorage.setItem(TRAY_KEY, v); };
+  const changeProcSort = (v: ProcSort) => { setProcSort(v); localStorage.setItem(PROC_SORT_KEY, v); };
+
+  /** ⚠️ Seule action de HILAL qui modifie la machine. La confirmation a déjà eu lieu
+   *  dans la ligne concernée ; ici on exécute et on rend compte, succès comme échec. */
+  async function onKill(pid: number, force: boolean) {
+    setBusyPid(pid);
+    try {
+      const r = await killProcess(pid, force);
+      setNotice(r.reason);
+    } catch {
+      setNotice('killDenied');
+    } finally {
+      setBusyPid(null);
+      procTick.current();
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      noticeTimer.current = setTimeout(() => setNotice(null), 4000);
+    }
+  }
 
   // Commandes de fenêtre (la barre de titre native est désactivée : `decorations: false`).
   // Import dynamique + garde `inTauri()` : hors Tauri (aperçu navigateur) les boutons
@@ -610,11 +989,24 @@ export default function App() {
     else await w.close();
   };
 
+  // Deux dégradés seulement, mémoïsés : ils ne dépendent que de l'accent, du thème
+  // et du sens de lecture — pas de la valeur, qui est portée par `background-size`.
+  const gaugeColors = useMemo(
+    () => ({ accent: ac.acc, warn: th.warn, crit: th.crit }),
+    [ac.acc, th.warn, th.crit],
+  );
+  const grad = useMemo(() => gaugeGradient(gaugeColors, rtl), [gaugeColors, rtl]);
+  const gcol = useMemo(() => (f: number) => gaugeColor(f, gaugeColors), [gaugeColors]);
+
   const disk = m ? primaryDisk(m.disks) : null;
   const cpuFrac = m ? clamp01(m.cpu.usage / 100) : 0;
   const ramFrac = m ? frac(m.mem.used, m.mem.total) : 0;
   const swapFrac = m ? frac(m.swap.used, m.swap.total) : 0;
   const diskFrac = disk ? frac(disk.total - disk.available, disk.total) : 0;
+
+  // Le tri des 77 capteurs bruts (dont les slots à -9201 °C) est fait une seule fois
+  // par échantillon, pas à chaque rendu.
+  const thermal = useMemo(() => thermalSummary(m?.thermal.components ?? []), [m?.thermal.components]);
 
   const health = useMemo(
     () => healthScore({
@@ -650,8 +1042,34 @@ export default function App() {
   }
 
   const c: Ctx | null = m
-    ? { m, st, th, ac, lang, cpuHist, ramHist, disk, cpuFrac, ramFrac, diskFrac, swapFrac, health }
+    ? { m, st, th, ac, lang, cpuHist, ramHist, disk, cpuFrac, ramFrac, diskFrac, swapFrac, health, thermal, grad, gcol }
     : null;
+
+  // Barre d'état : le texte est calculé ICI (langue, unité, métrique choisie) et
+  // seulement RELAYÉ au système par le backend. `catch` systématique — une commande
+  // Tauri qui échoue ne doit pas produire de rejet non géré à chaque seconde.
+  useEffect(() => {
+    if (!inTauri() || !m) return;
+    const label = trayText(trayMetric, {
+      cpu: cpuFrac, ram: ramFrac, temp: thermal.cpu,
+      netDown: m.net.rxRate, battery: m.battery ? m.battery.level : null,
+    });
+    const tip = [
+      `HILAL · ${t('cpuShort', lang)} ${pct(cpuFrac)} · ${t('ramShort', lang)} ${pct(ramFrac)}`,
+      thermal.cpu !== null ? `${Math.round(thermal.cpu)}°C` : null,
+    ].filter(Boolean).join(' · ');
+    void setTrayLabel(label, tip).catch(() => {});
+  }, [trayMetric, m, cpuFrac, ramFrac, thermal.cpu, lang]);
+
+  useEffect(() => {
+    if (!inTauri()) return;
+    void setTrayVisible(trayMetric !== 'off').catch(() => {});
+  }, [trayMetric]);
+
+  useEffect(() => {
+    if (!inTauri()) return;
+    void setTrayMenuLabels(t('trayShow', lang), t('trayQuit', lang)).catch(() => {});
+  }, [lang]);
 
   const rootStyle = {
     ...st.root,
@@ -734,9 +1152,13 @@ export default function App() {
             <SystemView c={c} />
           ) : view === 'cores' ? (
             <CoresView c={c} />
+          ) : view === 'processes' ? (
+            <ProcessesView c={c} procs={procs} sort={procSort} filter={procFilter}
+              onSort={changeProcSort} onFilter={setProcFilter} onKill={(pid, f) => { void onKill(pid, f); }}
+              busyPid={busyPid} notice={notice} />
           ) : (
-            <SettingsView c={c} mode={mode} accent={accent} onLang={changeLang} onMode={changeMode}
-              onAccent={changeAccent} onCopy={onCopy} copied={copied} />
+            <SettingsView c={c} mode={mode} accent={accent} tray={trayMetric} onLang={changeLang}
+              onMode={changeMode} onAccent={changeAccent} onTray={changeTray} onCopy={onCopy} copied={copied} />
           )}
         </div>
       </div>
@@ -931,6 +1353,49 @@ function makeStyles(th: Theme, rtl: boolean) {
 
     // ---- listes
     listPanel: { gridColumn: '1 / -1', gap: 10, padding: '16px 18px', minHeight: 0 } as CSSProperties,
+    // Demi-largeur : la grille d'ensemble a 2 colonnes, deux `halfPanel` remplissent
+    // la seconde rangée (thermique à gauche, volumes à droite).
+    halfPanel: { gap: 10, padding: '16px 18px', minHeight: 0 } as CSSProperties,
+    emptyNote: { fontSize: 12, color: th.textMuted, padding: '10px 2px', lineHeight: 1.5 } as CSSProperties,
+    search: {
+      border: 0, outline: 'none', padding: '10px 14px', background: th.panelSoft, color: th.textPrimary,
+      fontFamily: MONO, fontSize: 12.5, boxShadow: `inset 0 0 0 1px ${th.hairline}`, clipPath: cut(8, rtl),
+      width: '100%', boxSizing: 'border-box',
+    } as CSSProperties,
+    // Les colonnes suivent le sens de lecture : `dir` est posé sur la racine, une
+    // grille CSS s'inverse donc d'elle-même en RTL, sans code dédié.
+    procHead: {
+      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 104px 100px 108px 104px 172px',
+      gap: 10, alignItems: 'center', padding: '0 12px',
+    } as CSSProperties,
+    procTh: {
+      border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'start', padding: '6px 0',
+      color: th.textLabel, ...micro, letterSpacing: '.14em',
+    } as CSSProperties,
+    procRowWrap: { display: 'flex', flexDirection: 'column', flex: '0 0 auto' } as CSSProperties,
+    procRow: {
+      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 104px 100px 108px 104px 172px',
+      gap: 10, alignItems: 'center', padding: '8px 12px', background: th.panelFaint,
+      boxShadow: `inset 0 0 0 1px ${th.hairlineSoft}`, clipPath: cut(8, rtl),
+    } as CSSProperties,
+    procNameBtn: {
+      border: 0, background: 'transparent', cursor: 'pointer', textAlign: 'start', minWidth: 0,
+      display: 'flex', flexDirection: 'column', gap: 2, padding: 0, color: th.textPrimary,
+    } as CSSProperties,
+    procSub: { display: 'flex', gap: 8, alignItems: 'center', fontFamily: MONO, fontSize: 10.5, color: th.textMuted } as CSSProperties,
+    procTag: { ...micro, letterSpacing: '.1em', whiteSpace: 'nowrap' } as CSSProperties,
+    procCell: { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 } as CSSProperties,
+    procNum: { fontFamily: MONO, fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: th.textPrimary } as CSSProperties,
+    procActions: { display: 'flex', gap: 6, justifyContent: 'flex-end' } as CSSProperties,
+    procBtn: {
+      border: 0, cursor: 'pointer', padding: '7px 11px', background: th.panelSoft, color: th.textLabel,
+      ...micro, letterSpacing: '.1em', boxShadow: `inset 0 0 0 1px ${th.hairlineSoft}`, clipPath: cut(6, rtl),
+    } as CSSProperties,
+    procConfirm: { fontSize: 11.5, padding: '6px 14px', lineHeight: 1.4 } as CSSProperties,
+    procDetail: {
+      display: 'flex', flexWrap: 'wrap', gap: 16, padding: '8px 14px', fontFamily: MONO,
+      fontSize: 11, color: th.textMuted,
+    } as CSSProperties,
     listHeadLeft: { display: 'flex', alignItems: 'baseline', gap: 12, minWidth: 0 } as CSSProperties,
     listBody: { flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5, paddingInlineEnd: 4 } as CSSProperties,
     listRow: {
