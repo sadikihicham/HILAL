@@ -95,6 +95,94 @@ jobs:
             desktop/src-tauri/target/release/hilal-desktop.exe
           if-no-files-found: error
 
+  # ────────────────────────────────────────────────────────────────────── Linux
+  # Ajouté le 2026-09-04 : Linux devient une plateforme de DISTRIBUTION, pas seulement
+  # de compilation. Jusqu'ici la CI y faisait tourner `cargo check`/`cargo test` — on
+  # savait donc que le code compilait, mais aucun paquet n'avait JAMAIS été produit.
+  #
+  # Le support Linux du code est réel, pas un repli dégradé : `thermal.rs` lit les
+  # ventilateurs via `/sys/class/hwmon` (`FANS_SUPPORTED` vaut `true` sous Linux, alors
+  # qu'il est `false` sous Windows) et les températures passent par `sysinfo`. Seule
+  # l'énergie par processus reste une estimation — `energy.rs` n'a de mesure noyau que
+  # sous macOS, et l'interface l'affiche comme telle.
+  #
+  # 🪤 PLANCHER GLIBC : un binaire compilé sur `ubuntu-latest` se lie à la glibc de cette
+  #    image et ne démarre PAS sur une distribution plus ancienne (« GLIBC_2.xx not
+  #    found »). L'AppImage n'y change rien : elle embarque les bibliothèques de
+  #    l'application, pas la glibc. Pour viser plus large il faudrait construire sur une
+  #    image plus ancienne — décision à prendre le jour où une machine cible l'exige.
+  # 🪤 L'AppImage a besoin de FUSE 2 pour SE MONTER à l'exécution. Sur une distribution
+  #    récente (Ubuntu 24.04+), installer `libfuse2t64` — ou extraire :
+  #    `./HILAL*.AppImage --appimage-extract`. Rien à faire côté build.
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      # Mêmes prérequis que le job `gates-desktop-rust` de ci.yml. WebKitGTK est le
+      # moteur de rendu de Tauri sous Linux : c'est une dépendance d'EXÉCUTION, que le
+      # paquet .deb déclare et que l'utilisateur devra avoir installée.
+      - name: Dépendances système Tauri (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install JS deps
+        run: npm install
+
+      - name: Tests (logique pure)
+        run: npm test
+
+      - name: Garde anti-réseau (invariant zéro réseau sortant)
+        run: |
+          if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
+            echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          if grep -rniE "reqwest|ureq|hyper::|TcpStream|TcpListener|UdpSocket|to_socket_addrs" src-tauri/src; then
+            echo "::error::Appel réseau détecté dans desktop/src-tauri/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src ni desktop/src-tauri/src"
+
+      - name: Repartir d'un dossier de bundle vide
+        run: rm -rf src-tauri/target/release/bundle
+
+      # deb      : installation propre sur Debian/Ubuntu, dépendances déclarées.
+      # appimage : fichier UNIQUE et portable, `chmod +x` puis on lance — c'est la forme
+      #            la plus proche d'un « exécutable Linux » au sens courant.
+      # (`rpm` est supporté par Tauri mais exige l'outil `rpm` sur le runner ; à ajouter
+      #  le jour où une cible RHEL/Fedora se présente.)
+      - name: Build (.deb + AppImage)
+        run: npm run tauri:build -- --bundles deb,appimage
+
+      - name: Upload artefacts Linux
+        uses: actions/upload-artifact@v4
+        with:
+          name: hilal-desktop-linux
+          path: |
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
   # ────────────────────────────────────────────────────────────────────── macOS
   build-macos:
     runs-on: macos-latest
@@ -188,7 +276,7 @@ jobs:
   #    cette étape). Publier 1.1.0 rétroactivement exige donc un `gh release create`
   #    manuel ; 1.2.0 passe par un déplacement de son tag.
   publish:
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-linux]
     # Plus étroit que `refs/tags/` : un futur tag MOBILE lancé à la main ne doit pas
     # créer une Release desktop au titre absurde (`${TAG#desktop-v}` ne retirerait rien).
     if: startsWith(github.ref, 'refs/tags/desktop-v')
@@ -251,6 +339,7 @@ jobs:
           #    qui retire l'ancêtre commun des motifs déclarés plus haut :
           #      macOS   : les 2 motifs sont sous `…/release/bundle/` → `dmg/`, `macos/`
           #      Windows : les 2 motifs sont sous `…/release/`        → `bundle/nsis/`, la racine
+          #      Linux   : les 2 motifs sont sous `…/release/bundle/` → `deb/`, `appimage/`
           #    Vérifié sur les artefacts réellement produits par les builds 1.2.0.
           #    Changer un motif d'upload déplace l'ancêtre commun et casse ces chemins —
           #    `failglob` transformera ça en échec explicite, pas en Release vide.
@@ -260,6 +349,8 @@ jobs:
           gh release upload "$TAG" \
             artefacts/hilal-desktop-macos/dmg/*.dmg \
             artefacts/hilal-desktop-windows/bundle/nsis/*-setup.exe \
+            artefacts/hilal-desktop-linux/deb/*.deb \
+            artefacts/hilal-desktop-linux/appimage/*.AppImage \
             --clobber
 
           # Publication effective : dernière action, une fois les deux binaires en place.

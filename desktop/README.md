@@ -1,8 +1,13 @@
-# HILAL Desktop — moniteur matériel PC (Windows + macOS)
+# HILAL Desktop — moniteur matériel PC (macOS + Linux + Windows)
 
-Version **desktop** de HILAL : un moniteur **matériel 100% local** pour **Windows et
-macOS** (Linux en dev). C'est la déclinaison « PC » de l'app mobile HILAL — l'esprit
-*« macOS State »* appliqué au poste de travail. Un seul code Tauri, deux cibles natives.
+Version **desktop** de HILAL : un moniteur **matériel 100% local** pour **macOS, Linux et
+Windows**. C'est la déclinaison « PC » de l'app mobile HILAL — l'esprit *« macOS State »*
+appliqué au poste de travail. Un seul code Tauri, trois cibles natives.
+
+> Linux n'est plus « en dev » depuis le 2026-09-04 : le job `build-linux` produit un `.deb`
+> et une AppImage, et le job `publish` les attache à la Release. C'est même la seule
+> plateforme non-Apple où la **vitesse des ventilateurs** est réellement lue
+> (`/sys/class/hwmon`) — Windows ne l'expose pas.
 
 > **Invariant produit conservé : zéro réseau sortant.** L'app ne fait que lire des
 > compteurs systèmes locaux (`sysinfo`, `starship-battery`, SMC). Aucun `fetch`, aucune
@@ -185,18 +190,22 @@ c'est le contenu de ce commit qui part en build.
 ### Le tag déclenche les builds et la publication
 
 Un **tag `desktop-vX.Y.Z`** (ou *Run workflow* manuel) déclenche **un seul workflow**,
-`desktop-build.yml`, qui contient trois jobs :
+`desktop-build.yml`, qui contient quatre jobs :
 
 | Job | Runner | Artefact (éphémère) | Attaché à la Release |
 |---|---|---|---|
 | `build-windows` | `windows-latest` | `hilal-desktop-windows` — installeur **NSIS (.exe)** + `.exe` portable | l'installeur NSIS |
 | `build-macos` | `macos-latest` | `hilal-desktop-macos` — **.dmg + .app universels** (Intel + Apple Silicon) | le `.dmg` |
-| `publish` | `ubuntu-latest` | — | crée la Release et y attache les deux binaires |
+| `build-linux` | `ubuntu-latest` | `hilal-desktop-linux` — **.deb + AppImage** (amd64) | les deux |
+| `publish` | `ubuntu-latest` | — | crée la Release et y attache les binaires des trois OS |
 
-Les deux builds tournent **en parallèle**, chacun sur son OS natif (un `.exe` ne se
+Les trois builds tournent **en parallèle**, chacun sur son OS natif (un `.exe` ne se
 compile pas depuis macOS, ni l'inverse). Le `.app` et l'`.exe` portable restent dans
 l'artefact uniquement — une page de téléchargement n'a besoin que d'un fichier par
-plateforme.
+plateforme. Linux fait exception avec **deux** fichiers publiés, qui ne s'adressent pas au
+même utilisateur : le `.deb` (1,6 Mo) délègue WebKitGTK à `apt` et vise Debian/Ubuntu ;
+l'AppImage (73 Mo) embarque toute la pile GTK/WebKit pour tourner **partout**. Sur macOS et
+Windows la question ne se pose pas — le moteur de rendu (WKWebView, WebView2) vient du système.
 
 ### Pourquoi un seul fichier de workflow
 
@@ -212,13 +221,13 @@ qui produisait deux défauts réels —
 2. chaque job de *build* devait porter `contents: write`, alors qu'il exécute
    `npm install` et quatre actions tierces épinglées sur des refs **mutables**.
 
-Le job `publish` (`needs: [build-windows, build-macos]`) supprime les deux : plus de
+Le job `publish` (`needs: [build-windows, build-macos, build-linux]`) supprime les deux : plus de
 course, et le droit d'écriture n'existe que dans un job qui ne compile rien. Il suit le
 flux que `gh release create --help` recommande lui-même : **créer en brouillon,
 téléverser, puis publier** — un échec en cours de route laisse un brouillon invisible du
 public, jamais une Release amputée.
 
-> Contrepartie assumée : un *Run workflow* manuel lance désormais **les deux** builds,
+> Contrepartie assumée : un *Run workflow* manuel lance désormais **les trois** builds,
 > on ne peut plus en demander un seul. Gratuit sur dépôt public.
 >
 > Le job `publish` est gardé par `if: startsWith(github.ref, 'refs/tags/desktop-v')`.
