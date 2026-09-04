@@ -369,7 +369,23 @@ mod tests {
             a.items.iter().filter(|p| p.watts.is_some()).count(), a.items.len(),
             mesures, b.items.len(),
         );
-        assert!(mesures > 0, "aucune mesure d'énergie à 2 s d'intervalle");
+        // Le premier tick n'a jamais de mesure : il n'existe pas encore de point de
+        // comparaison. Vrai sur toutes les plateformes.
+        assert_eq!(
+            a.items.iter().filter(|p| p.watts.is_some()).count(),
+            0,
+            "le premier relevé ne peut rien mesurer"
+        );
+
+        // 🪤 Le contrat DÉPEND de la plateforme, et l'oublier a fait échouer la CI Linux
+        // (3e fois de la session que la plateforme absente trouve le défaut). On l'assert
+        // dans les DEUX sens plutôt que de désactiver le test hors macOS : ailleurs,
+        // l'absence de mesure est le comportement ATTENDU, pas une lacune du test.
+        if crate::energy::MEASURED {
+            assert!(mesures > 0, "macOS doit mesurer à 2 s d'intervalle");
+        } else {
+            assert_eq!(mesures, 0, "hors macOS, aucune mesure ne doit être inventée");
+        }
     }
 
     #[test]
