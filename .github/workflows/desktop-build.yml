@@ -1,0 +1,257 @@
+name: Desktop · build + Release
+
+# Build manuel (workflow_dispatch) ou sur tag `desktop-vX.Y.Z`.
+# IMPORTANT : ne se déclenche PAS sur push master — n'interfère donc pas avec
+# eas-update.yml (OTA mobile).
+#
+# 🏗️ POURQUOI UN SEUL FICHIER pour deux OS (fusion du 2026-09-04 de
+#    `desktop-windows.yml` + `desktop-macos.yml`) : la publication de la Release a
+#    besoin des DEUX binaires. Tant que les builds vivaient dans deux workflows
+#    séparés, chacun devait créer la Release de son côté — avec deux conséquences
+#    mesurées en revue :
+#      1. le build Windows (1 arch) finit 10-25 min avant le macOS universel
+#         (2 arch), donc une Release PUBLIQUE annonçait un .dmg encore absent —
+#         et le restait définitivement si le job macOS échouait ;
+#      2. chaque job de build devait porter `contents: write`, alors qu'il exécute
+#         `npm install` et quatre actions tierces épinglées sur des refs mutables.
+#    Un job `publish` en `needs:` supprime les deux : plus de course, et le droit
+#    d'écriture n'existe que dans un job qui ne compile rien.
+#
+# 🪤 Contrepartie assumée : un « Run workflow » manuel lance désormais les DEUX
+#    builds, on ne peut plus en demander un seul. Gratuit sur dépôt public.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'desktop-v*'
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────── Windows
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install JS deps
+        run: npm install
+
+      - name: Tests (logique pure)
+        run: npm test
+
+      - name: Garde anti-réseau (invariant zéro réseau sortant)
+        shell: bash
+        run: |
+          if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
+            echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          # Le front n'est que la moitié du produit : le backend Rust pouvait appeler
+          # le réseau sans qu'aucune porte ne le voie (`reqwest` est présent dans
+          # Cargo.lock, tiré transitivement par Tauri). Motif volontairement ÉTROIT :
+          # `std::net` est exclu car `main.rs` s'en sert pour FORMATER une adresse IP
+          # locale (`std::net::IpAddr::V4`) — un motif large casserait la CI à tort.
+          if grep -rniE "reqwest|ureq|hyper::|TcpStream|TcpListener|UdpSocket|to_socket_addrs" src-tauri/src; then
+            echo "::error::Appel réseau détecté dans desktop/src-tauri/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src ni desktop/src-tauri/src"
+
+      # Ceinture et bretelles : `swatinem/rust-cache` restaure `target`, et un bundle
+      # d'une version ANTÉRIEURE qui y survivrait serait ramassé par le glob de
+      # publication — donc un asset à la mauvaise version dans la Release.
+      - name: Repartir d'un dossier de bundle vide
+        shell: bash
+        run: rm -rf src-tauri/target/release/bundle
+
+      # `tauri build` lance `beforeBuildCommand` (npm run build = tsc + vite),
+      # puis compile le binaire Rust et l'installeur NSIS.
+      # --bundles nsis : on fige le bundle (la config `targets` vaut "all").
+      - name: Build (.exe + installeur NSIS)
+        run: npm run tauri:build -- --bundles nsis
+
+      - name: Upload artefacts Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: hilal-desktop-windows
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/hilal-desktop.exe
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────────────────────── macOS
+  build-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust (cibles Intel + Apple Silicon)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      - name: Install JS deps
+        run: npm install
+
+      - name: Tests (logique pure)
+        run: npm test
+
+      - name: Garde anti-réseau (invariant zéro réseau sortant)
+        shell: bash
+        run: |
+          if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
+            echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          # Voir le commentaire du job Windows : motif volontairement étroit, `std::net`
+          # exclu (utilisé pour formater une IP locale, pas pour ouvrir une connexion).
+          if grep -rniE "reqwest|ureq|hyper::|TcpStream|TcpListener|UdpSocket|to_socket_addrs" src-tauri/src; then
+            echo "::error::Appel réseau détecté dans desktop/src-tauri/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src ni desktop/src-tauri/src"
+
+      - name: Repartir d'un dossier de bundle vide
+        run: rm -rf src-tauri/target/universal-apple-darwin/release/bundle
+
+      # Détecte si la signature est possible (secret certificat présent).
+      - name: Détecte la configuration de signature
+        id: cfg
+        run: echo "sign=${{ secrets.APPLE_CERTIFICATE != '' }}" >> "$GITHUB_OUTPUT"
+
+      # Cas SIGNÉ : Tauri importe le certificat (via APPLE_CERTIFICATE), signe et
+      # notarise (via APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID).
+      - name: Build signé + notarisé (.app + .dmg universel)
+        if: steps.cfg.outputs.sign == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg
+
+      # Cas NON SIGNÉ : aucune variable Apple dans l'environnement -> Tauri ne tente
+      # aucun import de certificat (build de test, Gatekeeper bloquera la distribution).
+      - name: Build non signé (.app + .dmg universel)
+        if: steps.cfg.outputs.sign != 'true'
+        run: npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg
+
+      - name: Upload artefacts macOS
+        uses: actions/upload-artifact@v4
+        with:
+          name: hilal-desktop-macos
+          path: |
+            desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: error
+
+  # ────────────────────────────────────────────────────────── publication Release
+  # Un artefact `upload-artifact` EXPIRE (90 jours par défaut) et exige d'être
+  # connecté à GitHub pour être téléchargé : ce n'est PAS un canal de distribution.
+  # Constat du 2026-09-04 : seule la Release 1.0.0 (juin) était publique, alors que
+  # 1.1.0 et 1.2.0 étaient taguées et construites — deux versions invisibles pour qui
+  # arrive sur le dépôt.
+  #
+  # 🪤 `on: push: tags:` NE REJOUE PAS un tag déjà poussé, et un `workflow_dispatch`
+  #    sur un tag existant exécute le workflow TEL QU'IL ÉTAIT À CE TAG (donc sans
+  #    cette étape). Publier 1.1.0 rétroactivement exige donc un `gh release create`
+  #    manuel ; 1.2.0 passe par un déplacement de son tag.
+  publish:
+    needs: [build-windows, build-macos]
+    # Plus étroit que `refs/tags/` : un futur tag MOBILE lancé à la main ne doit pas
+    # créer une Release desktop au titre absurde (`${TAG#desktop-v}` ne retirerait rien).
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    runs-on: ubuntu-latest
+    # Le SEUL job qui écrit sur le dépôt — et il ne compile rien, n'installe aucune
+    # dépendance npm/cargo et n'exécute aucune action tierce hors checkout/download.
+    permissions:
+      contents: write
+    steps:
+      # Uniquement pour `desktop/RELEASE_NOTES.md`.
+      - uses: actions/checkout@v4
+
+      # Sans `name:`, télécharge TOUS les artefacts du run, chacun dans son
+      # sous-dossier (`artefacts/hilal-desktop-macos/…`).
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+
+      # Flux recommandé par `gh release create --help` lui-même : créer en BROUILLON,
+      # téléverser, puis publier. Un échec en cours de route laisse donc un brouillon
+      # invisible du public, jamais une Release publique amputée d'un binaire.
+      - name: Publier la Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Un glob sans correspondance est sinon passé LITTÉRALEMENT à `gh`, qui
+          # échoue alors sur un message incompréhensible. Avec `failglob`, l'échec
+          # devient `bash: no match: …` et l'étape s'arrête net.
+          shopt -s failglob
+          # 🔒 Le nom du tag transite par une variable d'environnement, jamais par une
+          #    interpolation `${{ }}` dans le shell : aucune surface d'injection.
+          TAG="$GITHUB_REF_NAME"
+
+          # Test explicite plutôt qu'un `|| echo` : celui-ci absorbait TOUTES les
+          # erreurs (notes introuvables, 403, 5xx) en affirmant un diagnostic faux.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG déjà existante — on téléverse dedans."
+          else
+            gh release create "$TAG" \
+              --title "HILAL Desktop ${TAG#desktop-v}" \
+              --notes-file desktop/RELEASE_NOTES.md \
+              --verify-tag \
+              --draft
+          fi
+
+          # 🪤 Chemins EXPLICITES, pas `artefacts/**/…` : `globstar` n'existe qu'à
+          #    partir de bash 4 (macOS est resté en 3.2), donc un `**` serait
+          #    invérifiable localement. Ces chemins découlent de `upload-artifact`,
+          #    qui retire l'ancêtre commun des motifs déclarés plus haut :
+          #      macOS   : les 2 motifs sont sous `…/release/bundle/` → `dmg/`, `macos/`
+          #      Windows : les 2 motifs sont sous `…/release/`        → `bundle/nsis/`, la racine
+          #    Vérifié sur les artefacts réellement produits par les builds 1.2.0.
+          #    Changer un motif d'upload déplace l'ancêtre commun et casse ces chemins —
+          #    `failglob` transformera ça en échec explicite, pas en Release vide.
+          # ⚠️ `--clobber` SUPPRIME l'asset existant avant de téléverser : si le
+          #    téléversement échoue ensuite, l'ancien est perdu (documenté par `gh`).
+          #    Acceptable ici, la Release est encore un brouillon.
+          gh release upload "$TAG" \
+            artefacts/hilal-desktop-macos/dmg/*.dmg \
+            artefacts/hilal-desktop-windows/bundle/nsis/*-setup.exe \
+            --clobber
+
+          # Publication effective : dernière action, une fois les deux binaires en place.
+          gh release edit "$TAG" --draft=false --latest

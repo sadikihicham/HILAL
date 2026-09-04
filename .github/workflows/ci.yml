@@ -57,15 +57,28 @@ jobs:
       - name: Tests (logique pure + parité des 3 langues)
         run: npm test
 
-      # Même garde que les workflows de release, mais jouée sur CHAQUE PR : sans
+      # Même garde que le workflow de release, mais jouée sur CHAQUE PR : sans
       # elle un `fetch(` n'était détecté qu'au tag, donc trop tard.
+      #
+      # 🔴 Étendue au Rust le 2026-09-04. Elle ne couvrait que `desktop/src` (le front),
+      #    soit la MOITIÉ du produit : le moteur Rust pouvait ouvrir une connexion sans
+      #    qu'aucune porte ne le voie — et `reqwest` est bien présent dans `Cargo.lock`,
+      #    tiré transitivement par Tauri. La note de Release affirme l'invariant aux
+      #    utilisateurs ; il fallait que la porte le vérifie vraiment.
+      # 🪤 Motif Rust volontairement ÉTROIT : `std::net` en est EXCLU, car `main.rs`
+      #    s'en sert pour FORMATER une adresse IP locale (`std::net::IpAddr::V4`, sans
+      #    aucune connexion). Un motif large casserait la CI sur du code parfaitement sain.
       - name: Garde anti-réseau (invariant zéro réseau sortant)
         run: |
           if grep -rniE "fetch\(|XMLHttpRequest|WebSocket|axios|sendBeacon|EventSource" src; then
             echo "::error::Appel réseau détecté dans desktop/src — invariant zéro réseau violé"
             exit 1
           fi
-          echo "OK : aucun appel réseau dans desktop/src"
+          if grep -rniE "reqwest|ureq|hyper::|TcpStream|TcpListener|UdpSocket|to_socket_addrs" src-tauri/src; then
+            echo "::error::Appel réseau détecté dans desktop/src-tauri/src — invariant zéro réseau violé"
+            exit 1
+          fi
+          echo "OK : aucun appel réseau dans desktop/src ni desktop/src-tauri/src"
 
   # ─────────────────── desktop — backend Rust (plus lent, isolé pour le diagnostic)
   # `cargo check` fait tourner `tauri-build`, qui PARSE `tauri.conf.json` et compile

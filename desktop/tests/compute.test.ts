@@ -188,6 +188,20 @@ describe('plausibleTemp / thermalSummary', () => {
     ]);
     expect(s.rows).toHaveLength(1);
     expect(s.cpu).toBe(44);
+    // Le doublon compte parmi les non-retenus : sinon le panneau afficherait
+    // « 1 capteur · 0 non retenu » pour 2 capteurs lus, et le total serait faux.
+    expect(s.dropped).toBe(1);
+  });
+
+  it('l’arithmétique du panneau tombe juste : affichés + non retenus = lus', () => {
+    const bruts = [
+      { label: 'PMU tdie1', temp: 41 },
+      { label: 'PMU tdie1', temp: 44 },   // doublon
+      { label: 'PMU tdev1', temp: -9201.14 },
+      { label: 'gas gauge battery', temp: 32 },
+    ];
+    const s = thermalSummary(bruts);
+    expect(s.rows.length + s.dropped).toBe(bruts.length);
   });
 
   it('sur un jeu réaliste : bon CPU, bonne batterie, aberrations comptées', () => {
@@ -204,8 +218,12 @@ describe('plausibleTemp / thermalSummary', () => {
     expect(s.battery).toBe(32);
     expect(s.storage).toBe(35);
     expect(s.dropped).toBe(2);
-    // `tcal` (51,8 °C) est bien le plus chaud RETENU, mais n'est pas le CPU.
-    expect(s.hottest?.label).toBe('PMU tcal');
+    // `tcal` (51,8 °C) est plus chaud, mais c'est un capteur de CALIBRATION : il est
+    // classé « other » et exclu du « point le plus chaud », qui doit désigner une
+    // température de fonctionnement — sinon le panneau annonce 52 °C à côté d'un
+    // processeur affiché à 44 °C, sans que rien n'explique l'écart.
+    expect(s.hottest?.label).toBe('PMU tdie6');
+    expect(s.hottest?.temp).toBe(44);
     expect(s.cpu).not.toBe(51.8);
   });
 

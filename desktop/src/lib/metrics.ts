@@ -56,6 +56,10 @@ export type Proc = {
   isSelf: boolean;
   runTime: number;
   status: string;
+  /** Date de démarrage (secondes epoch). C'est l'IDENTITÉ du processus : elle est
+   *  renvoyée à l'arrêt pour que le backend refuse d'agir si le PID a été réattribué
+   *  entre l'affichage et le clic. */
+  startTime: number;
 };
 
 export type ProcList = {
@@ -89,9 +93,15 @@ export async function fetchProcesses(
   return invoke<ProcList>('list_processes', { sort, filter, limit });
 }
 
-/** ⚠️ Seule fonction de HILAL qui MODIFIE l'état de la machine. */
-export async function killProcess(pid: number, force: boolean): Promise<KillOutcome> {
-  return invoke<KillOutcome>('kill_process', { pid, force });
+/** ⚠️ Seule fonction de HILAL qui MODIFIE l'état de la machine.
+ *  `startTime` vient de la ligne AFFICHÉE : le backend refuse si le PID désigne
+ *  désormais un autre processus (la liste a jusqu'à 2 s de retard). */
+export async function killProcess(
+  pid: number,
+  force: boolean,
+  startTime: number,
+): Promise<KillOutcome> {
+  return invoke<KillOutcome>('kill_process', { pid, force, startTime });
 }
 
 export const setTrayLabel = (title: string | null, tooltip: string) =>

@@ -10,7 +10,7 @@ on:
     # Un push qui ne touche QUE ces chemins ne republie pas le bundle mobile :
     # ils ne peuvent pas changer le JS embarqué par Expo.
     #   - desktop/**  : l'app desktop Tauri est un produit séparé (binaires
-    #                   construits par desktop-windows.yml / desktop-macos.yml).
+    #                   construits par desktop-build.yml, sur tag uniquement).
     #   - .github/**  : modifier un workflow ne change pas le bundle. Sans cette
     #                   ligne, toute PR qui touche à la CI et au desktop
     #                   déclencherait quand même l'OTA, ce qui viderait de son sens

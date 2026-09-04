@@ -258,7 +258,13 @@ fn get_metrics(state: tauri::State<AppState>) -> Metrics {
 /// Énumération des processus. Commande SÉPARÉE de `get_metrics` à dessein : c'est la
 /// lecture la plus chère du backend, et la vue Processus est la seule à en avoir
 /// besoin. Tant qu'elle n'est pas ouverte, ce coût n'existe pas.
-#[tauri::command]
+///
+/// `(async)` = exécution sur le pool de threads. Sans cet attribut, une commande Tauri
+/// non-`async` s'exécute EN LIGNE sur le thread de l'interface : l'énumération de ~1000
+/// processus y gèle la fenêtre quelques dizaines de millisecondes à chaque tick. Le
+/// `Mutex` cesse alors d'être décoratif — mais `get_metrics` capture son horodatage
+/// APRÈS l'acquisition du verrou, donc les débits restent justes même en cas d'attente.
+#[tauri::command(async)]
 fn list_processes(
     state: tauri::State<AppState>,
     sort: String,
@@ -275,14 +281,22 @@ fn list_processes(
 /// ⚠️ Seule commande de HILAL qui modifie l'état de la machine. La confirmation est
 /// portée par l'interface ; ici on se contente de rafraîchir la table (le PID peut
 /// avoir disparu depuis l'affichage) puis de transmettre la demande au système.
-#[tauri::command]
-fn kill_process(state: tauri::State<AppState>, pid: u32, force: bool) -> procs::KillOutcome {
+/// `start_time` = la date de démarrage que l'interface AFFICHAIT pour ce PID. Elle est
+/// exigée : sans elle, « tuer le PID 4711 » peut viser un processus qui a hérité du numéro
+/// entre l'affichage et le clic (la liste a jusqu'à 2 s de retard).
+#[tauri::command(async)]
+fn kill_process(
+    state: tauri::State<AppState>,
+    pid: u32,
+    force: bool,
+    start_time: u64,
+) -> procs::KillOutcome {
     let mut s = state.0.lock().unwrap_or_else(|e| e.into_inner());
     s.system.refresh_processes(
         sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
         true,
     );
-    procs::kill(&s.system, pid, force)
+    procs::kill(&s.system, pid, force, start_time)
 }
 
 fn main() {
