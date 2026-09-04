@@ -220,8 +220,17 @@ jobs:
           # échoue alors sur un message incompréhensible. Avec `failglob`, l'échec
           # devient `bash: no match: …` et l'étape s'arrête net.
           shopt -s failglob
-          # 🔒 Le nom du tag transite par une variable d'environnement, jamais par une
-          #    interpolation `${{ }}` dans le shell : aucune surface d'injection.
+          # 🔒 Le nom du tag transite par une variable d'ENVIRONNEMENT, jamais par une
+          #    interpolation d'expression GitHub dans le shell : aucune surface
+          #    d'injection de commande.
+          # 🪤 NE PAS écrire ici la syntaxe d'interpolation à vide pour l'illustrer :
+          #    GitHub évalue les expressions PARTOUT dans le fichier, y compris dans un
+          #    commentaire de bloc `run:`. Une expression vide est une erreur de syntaxe
+          #    qui rend le workflow INVALIDE — il ne se déclenche alors plus sur son tag,
+          #    et GitHub crée à la place un run en échec à chaque push, nommé d'après le
+          #    CHEMIN du fichier au lieu de son `name:`. Mesuré le 2026-09-04 : c'est
+          #    exactement le commentaire d'avertissement sur l'injection qui avait cassé
+          #    ce workflow.
           TAG="$GITHUB_REF_NAME"
 
           # Test explicite plutôt qu'un `|| echo` : celui-ci absorbait TOUTES les
