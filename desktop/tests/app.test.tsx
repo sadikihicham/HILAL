@@ -9,7 +9,7 @@
 // FIXES. Sans ça l'app retomberait sur son jeu de démonstration, qui dérive
 // aléatoirement à chaque tick — des assertions sur des chiffres seraient instables.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { Metrics, Proc, ProcList } from '../src/lib/metrics';
 import pkg from '../package.json';
 
@@ -381,11 +381,23 @@ describe('vue Processus', () => {
 });
 
 describe('icône de barre d’état', () => {
+  // 🪤 INSTABILITÉ CORRIGÉE le 2026-09-04 (~1 échec sur 4 en suite complète, toujours
+  //    vert en isolation, donc invisible quand on relance le seul fichier fautif).
+  //    `charge()` n'attend que l'apparition du texte « 25.0 » dans le DOM. La poussée
+  //    vers la barre d'état est un effet SÉPARÉ, et `setTrayLabel` est asynchrone :
+  //    rien ne garantit qu'il ait été vidé à cet instant. `box.tray` est alors encore
+  //    vide, `at(-1)` vaut `undefined`, et l'assertion tombe sur un `undefined` qui ne
+  //    dit rien de la cause. On attend donc explicitement l'effet.
+  //    Depuis le 2026-09-04 cette porte est BLOQUANTE : une instabilité ici refuse des
+  //    PR au hasard, ce qui apprend à relancer sans lire — exactement ce qu'une porte
+  //    ne doit jamais enseigner.
+  const dernierTray = () => box.tray.at(-1);
+
   it('pousse la charge CPU par défaut', async () => {
     render(<App />);
     await charge();
-    expect(box.tray.at(-1)?.title).toBe('25%');
-    expect(box.tray.at(-1)?.tooltip).toContain('CPU 25%');
+    await waitFor(() => expect(dernierTray()?.title).toBe('25%'));
+    expect(dernierTray()?.tooltip).toContain('CPU 25%');
   });
 
   it('le choix « Température » affiche les degrés, et « Désactivée » masque l’icône', async () => {
@@ -395,11 +407,13 @@ describe('icône de barre d’état', () => {
 
     const carte = screen.getByText('Icône de barre d’état').parentElement?.parentElement as HTMLElement;
     fireEvent.click(within(carte).getByText('Température'));
-    expect(box.tray.at(-1)?.title).toBe('44°');
+    // Même course : le clic met l'état à jour de façon synchrone, la poussée vers la
+    // barre d'état non. Ce test n'avait pas encore échoué — il l'aurait fait un jour.
+    await waitFor(() => expect(dernierTray()?.title).toBe('44°'));
     expect(localStorage.getItem('tray.metric')).toBe('temp');
 
     fireEvent.click(within(carte).getByText('Désactivée'));
-    expect(box.trayVisible).toBe(false);
+    await waitFor(() => expect(box.trayVisible).toBe(false));
   });
 });
 
