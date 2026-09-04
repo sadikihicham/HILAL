@@ -51,7 +51,7 @@ npm test                    # Vitest : tests de logique pure (un seul : npx vite
 ```
 
 Pas d'ESLint. Les **deux portes locales** sont `npx tsc --noEmit` et `npm test`. Vitest ne couvre que
-la **logique pure** (`src/format.ts`, `src/battery.ts`, `src/tilt.ts`) en environnement `node` — **pas**
+la **logique pure** (`src/format.ts`, `src/battery.ts`, `src/tilt.ts`, `src/i18n.ts`) en environnement `node` — **pas**
 de composants React Native (importer `App.tsx` tirerait RN et casserait). Tout code testable doit donc
 être extrait dans un module pur, puis ré-importé par `App.tsx`/un hook (cf. `fmtBytes`/`lowBatteryStep`/
 `tiltAngle`). Tests dans `tests/` (découverte `tests/**/*.test.ts`, cf. `vitest.config.ts`).
@@ -115,6 +115,9 @@ test sous `tests/`), le hook se contentant de brancher le capteur — cf. `useTi
 - **Codebase francophone** : commentaires, README et libellés par défaut en français — suivre le
   fichier alentour.
 - **i18n obligatoire** : toute chaîne UI passe par `src/i18n.ts` ; les **3 langues** (FR/EN/AR)
-  doivent être maintenues de front. Pas de texte en dur dans `App.tsx`.
+  doivent être maintenues de front. Pas de texte en dur dans `App.tsx`. La règle est **tenue par
+  une porte** depuis le 2026-09-04 (`tests/i18n.test.ts`) — indispensable ici car `t()` finit par
+  `?? S.fr[k]` : une clé oubliée en arabe n'affiche pas un trou, elle affiche du **français** au
+  milieu d'une interface RTL, ce qu'aucune relecture ne voit passer.
 - **RTL** géré inline (`flexDirection: 'row-reverse'`, `textAlign: 'right'`) selon `isRTL(lang)`.
 - **Zéro réseau sortant** (rappel) : ne pas ajouter de fetch/analytics/télémétrie.

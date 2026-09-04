@@ -117,6 +117,41 @@ jobs:
       # protocole SMC (80 octets) et de `rusage_info_v6` (464 octets). Un décalage y
       # ferait lire un autre champ — donnée fausse, jamais une erreur. Les tests
       # spécifiques à macOS sont exclus par `cfg` et ne tournent pas ici ; le test
-      # d'énumération des processus, lui, s'exécute bien sous Linux.
+      # d'énumération des processus, lui, s'exécute bien sous Linux — les autres sont
+      # couverts par `gates-desktop-rust-macos` ci-dessous.
       - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+  # ──────────────────────────── desktop — backend Rust SUR macOS (le FFI, enfin testé)
+  # Ajouté le 2026-09-04. Le job Linux ci-dessus compile 8 des 16 tests seulement :
+  # tout `smc.rs` (`#![cfg(target_os = "macos")]`) et tout le `mod tests` de
+  # `energy.rs` (`cfg(all(test, target_os = "macos"))`) étaient exclus, donc
+  # exécutés NULLE PART. Deux tests de `procs.rs` tournaient bien sous Linux mais y
+  # perdaient leur assertion énergie, elle aussi gardée par `cfg`.
+  #
+  # Ce qu'ils protègent n'est pas rattrapable autrement : des DISPOSITIONS BINAIRES
+  # codées en dur (offsets de `rusage_info_v6`, trame SMC de 80 octets) face à des
+  # en-têtes système que nous ne contrôlons pas. Un décalage y lit un champ voisin —
+  # la valeur reste plausible, aucune erreur n'est levée, l'interface affiche des
+  # watts faux avec aplomb. C'est exactement le type de bug qu'une porte doit tenir.
+  #
+  # Volontairement SÉPARÉ du job Linux plutôt qu'une matrice : Linux valide en plus
+  # les dépendances GTK et sert de garde à la portabilité du code non gardé par `cfg`.
+  # Une matrice masquerait lequel des deux a cassé.
+  gates-desktop-rust-macos:
+    name: gates (desktop · rust macOS)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri -> target
+
+      # Pas de `cargo check` ici : le job Linux le fait déjà et c'est lui qui valide
+      # `tauri.conf.json`. L'apport de macOS est l'EXÉCUTION des tests gardés `cfg`.
+      - name: cargo test (dont SMC + énergie, invisibles sous Linux)
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
