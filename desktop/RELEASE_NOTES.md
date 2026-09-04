@@ -6,7 +6,10 @@ icône de barre d'état configurable.
 
 > **Zéro réseau sortant.** L'application ne fait aucun appel réseau, aucune télémétrie,
 > aucune analytique. C'est un invariant vérifié à chaque *pull request* par une porte
-> d'intégration continue qui échoue si un `fetch(` apparaît dans le code.
+> d'intégration continue qui échoue si un appel réseau apparaît — côté interface
+> (`fetch`, `WebSocket`, `XMLHttpRequest`…) **comme** côté moteur Rust (`reqwest`,
+> `TcpStream`…). L'interface est en outre verrouillée par une politique de sécurité de
+> contenu en `connect-src 'none'`.
 
 ## Téléchargement
 
@@ -53,10 +56,15 @@ Cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même*
 
 Certaines mesures dépendent de ce que le système accepte d'exposer :
 
-| Mesure | macOS | Windows | Linux |
-|---|---|---|---|
-| Températures | ✅ capteurs IOHID | ✅ si le pilote les expose | ✅ `hwmon` |
-| Ventilateurs | ✅ SMC | ❌ indisponible (aucun pilote noyau) | ✅ `hwmon` |
-| Énergie par processus | ✅ mesure noyau réelle | 🟡 estimation | 🟡 estimation |
+| Mesure | macOS | Windows |
+|---|---|---|
+| Températures | ✅ capteurs IOHID | ✅ si le pilote les expose |
+| Ventilateurs | ✅ SMC | ❌ indisponible — aucun pilote noyau n'expose la vitesse |
+| Énergie par processus | ✅ mesure noyau réelle | 🟡 estimation, signalée comme telle |
 
 Une valeur absente est affichée comme telle — elle n'est jamais inventée ni extrapolée.
+
+---
+
+Le détail des changements de chaque version est dans l'historique du dépôt :
+<https://github.com/sadikihicham/HILAL/commits/master/desktop>.

@@ -17,15 +17,22 @@ macOS** (Linux en dev). C'est la déclinaison « PC » de l'app mobile HILAL —
 
 ## Installer (utilisateurs)
 
-Les binaires sont publiés dans les **[Releases GitHub](../../releases)** — un `.dmg`
+Les binaires sont publiés dans les
+**[Releases GitHub](https://github.com/sadikihicham/HILAL/releases)** — un `.dmg`
 universel pour macOS, un installeur `.exe` pour Windows.
 
 > 🪤 **Ne pas confondre avec les artefacts de workflow.** Un artefact `upload-artifact`
 > expire (90 jours) et exige d'être connecté à GitHub : ce n'est pas un canal de
-> distribution. C'est ce qui avait fait que, jusqu'au 2026-09-04, la seule version
-> publiquement téléchargeable était la **1.0.0 de juin**, alors que 1.1.0 et 1.2.0
-> étaient taguées et construites. Depuis, un tag `desktop-vX.Y.Z` publie la Release
-> automatiquement (étape finale des deux workflows de build).
+> distribution. C'est ce qui a fait que la seule version publiquement téléchargeable
+> est restée la **1.0.0 de juin**, alors que 1.1.0 et 1.2.0 étaient taguées et
+> construites. Depuis le 2026-09-04, un tag `desktop-vX.Y.Z` publie la Release
+> automatiquement (job `publish` de `desktop-build.yml`).
+>
+> ⚠️ **Ce mécanisme ne rattrape pas le passé.** `on: push: tags:` ne rejoue pas un tag
+> déjà poussé, et un « Run workflow » sur un tag existant exécuterait le fichier de
+> workflow **tel qu'il était à ce tag** — donc sans le job `publish`. Concrètement :
+> **1.1.0 restera invisible** tant qu'on ne publiera pas sa Release à la main, et
+> **1.2.0 exige de déplacer son tag** sur un commit qui porte ce workflow.
 
 **⚠️ Les binaires ne sont pas signés** — aucun certificat éditeur n'est acheté pour ce
 projet. Au premier lancement :
@@ -38,8 +45,8 @@ projet. Au premier lancement :
   → **Informations complémentaires** → **Exécuter quand même**.
 
 Ce texte est aussi le corps de chaque Release : il vit dans **`desktop/RELEASE_NOTES.md`**,
-que les deux workflows passent à `gh release create --notes-file`. Le modifier met à jour
-les Releases suivantes — pas celles déjà publiées.
+que le job `publish` passe à `gh release create --notes-file`. Le modifier met à jour les
+Releases suivantes — pas celles déjà publiées.
 
 ## Ce que ça affiche
 
@@ -151,24 +158,48 @@ la convention « les 3 langues sont maintenues de front » devient une porte blo
 
 ## Produire les binaires (CI, recommandé)
 
-Un **tag `desktop-vX.Y.Z`** (ou *Run workflow* manuel) déclenche **les deux** builds en
-parallèle, chacun sur son OS natif (un `.exe` ne se compile pas depuis macOS, ni l'inverse) :
+Un **tag `desktop-vX.Y.Z`** (ou *Run workflow* manuel) déclenche **un seul workflow**,
+`desktop-build.yml`, qui contient trois jobs :
 
-| Workflow | Runner | Artefact (éphémère) | Attaché à la Release |
+| Job | Runner | Artefact (éphémère) | Attaché à la Release |
 |---|---|---|---|
-| `desktop-windows.yml` | `windows-latest` | `hilal-desktop-windows` — installeur **NSIS (.exe)** + `.exe` portable | l'installeur NSIS |
-| `desktop-macos.yml` | `macos-latest` | `hilal-desktop-macos` — **.dmg + .app universels** (Intel + Apple Silicon) | le `.dmg` |
+| `build-windows` | `windows-latest` | `hilal-desktop-windows` — installeur **NSIS (.exe)** + `.exe` portable | l'installeur NSIS |
+| `build-macos` | `macos-latest` | `hilal-desktop-macos` — **.dmg + .app universels** (Intel + Apple Silicon) | le `.dmg` |
+| `publish` | `ubuntu-latest` | — | crée la Release et y attache les deux binaires |
 
-**Sur un tag**, chaque workflow publie en plus son binaire dans la **Release GitHub** du
-tag (`gh release create … || gh release upload --clobber`). Les deux visent la même
-Release en parallèle : celui qui arrive second échoue sur `create`, l'erreur est absorbée,
-puis chacun téléverse son fichier. Le `.app` et l'`.exe` portable restent dans l'artefact
-uniquement — une page de téléchargement n'a besoin que d'un fichier par plateforme.
+Les deux builds tournent **en parallèle**, chacun sur son OS natif (un `.exe` ne se
+compile pas depuis macOS, ni l'inverse). Le `.app` et l'`.exe` portable restent dans
+l'artefact uniquement — une page de téléchargement n'a besoin que d'un fichier par
+plateforme.
 
-Sur un *Run workflow* **manuel**, l'étape de publication est sautée
-(`if: startsWith(github.ref, 'refs/tags/')`) : il n'y a pas de tag auquel attacher.
+### Pourquoi un seul fichier de workflow
 
-⚠️ Ces workflows **ne se déclenchent pas** sur push `master` (pas d'interférence avec
+Ils étaient séparés (`desktop-windows.yml` / `desktop-macos.yml`) jusqu'au 2026-09-04.
+La publication de la Release a besoin des **deux** binaires : tant que les builds
+vivaient dans deux workflows distincts, chacun devait créer la Release de son côté, ce
+qui produisait deux défauts réels —
+
+1. le build Windows (1 architecture) finit **10 à 25 min avant** le macOS universel (2
+   architectures) : il existait donc une fenêtre pendant laquelle une Release **publique**
+   annonçait un `.dmg` encore absent — et le restait définitivement si le job macOS
+   échouait, car rien ne dépublie une Release ;
+2. chaque job de *build* devait porter `contents: write`, alors qu'il exécute
+   `npm install` et quatre actions tierces épinglées sur des refs **mutables**.
+
+Le job `publish` (`needs: [build-windows, build-macos]`) supprime les deux : plus de
+course, et le droit d'écriture n'existe que dans un job qui ne compile rien. Il suit le
+flux que `gh release create --help` recommande lui-même : **créer en brouillon,
+téléverser, puis publier** — un échec en cours de route laisse un brouillon invisible du
+public, jamais une Release amputée.
+
+> Contrepartie assumée : un *Run workflow* manuel lance désormais **les deux** builds,
+> on ne peut plus en demander un seul. Gratuit sur dépôt public.
+>
+> Le job `publish` est gardé par `if: startsWith(github.ref, 'refs/tags/desktop-v')`.
+> Un *Run workflow* depuis une **branche** saute donc la publication ; depuis un **tag**
+> `desktop-v*` — le sélecteur GitHub accepte les tags — elle s'exécute.
+
+⚠️ Ce workflow **ne se déclenche pas** sur push `master` (pas d'interférence avec
 l'OTA mobile `eas-update.yml`).
 
 Build local (sur la machine correspondante) :
@@ -182,8 +213,8 @@ npm run tauri:build -- --target universal-apple-darwin --bundles app,dmg   # mac
 
 Un `.dmg` **non signé** est bloqué par Gatekeeper (« développeur non identifié »). Pour
 **publier**, il faut un **compte Apple Developer** (99 $/an) et configurer ces *secrets*
-GitHub (le workflow `desktop-macos.yml` signe + notarise automatiquement dès qu'ils sont
-présents — sinon il produit un build non signé pour test) :
+GitHub (le job `build-macos` de `desktop-build.yml` signe + notarise automatiquement dès
+qu'ils sont présents — sinon il produit un build non signé pour test) :
 
 | Secret | Description |
 |---|---|
