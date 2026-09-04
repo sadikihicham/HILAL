@@ -1,6 +1,6 @@
 # HILAL Desktop
 
-Moniteur **matériel 100 % local** pour Windows et macOS : températures et ventilateurs,
+Moniteur **matériel 100 % local** pour macOS, Linux et Windows : températures et ventilateurs,
 processus les plus gourmands (avec arrêt), batterie, mémoire, disques, réseau, et une
 icône de barre d'état configurable.
 
@@ -17,6 +17,8 @@ icône de barre d'état configurable.
 |---|---|
 | **macOS** — Intel **et** Apple Silicon | `HILAL Desktop_<version>_universal.dmg` |
 | **Windows 10 / 11** — 64 bits | `HILAL Desktop_<version>_x64-setup.exe` |
+| **Linux** — Debian / Ubuntu, 64 bits | `HILAL Desktop_<version>_amd64.deb` |
+| **Linux** — toute distribution, 64 bits | `HILAL Desktop_<version>_amd64.AppImage` |
 
 ## ⚠️ Première ouverture : les binaires ne sont pas signés
 
@@ -43,6 +45,30 @@ fichier n'est pas corrompu, il est seulement dépourvu de signature.
 SmartScreen affiche « *Windows a protégé votre ordinateur* ».
 Cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même**.
 
+### Linux
+
+Rien à contourner : Linux n'impose aucune signature d'éditeur. Deux formats au choix.
+
+**Paquet Debian / Ubuntu** — installation propre, dépendances résolues par le gestionnaire :
+
+```bash
+sudo apt install ./HILAL\ Desktop_<version>_amd64.deb
+```
+
+**AppImage** — fichier unique, aucune installation, fonctionne sur toute distribution :
+
+```bash
+chmod +x HILAL\ Desktop_<version>_amd64.AppImage
+./HILAL\ Desktop_<version>_amd64.AppImage
+```
+
+> Deux points à connaître. **(1)** L'AppImage se monte via **FUSE 2** ; sur une
+> distribution récente (Ubuntu 24.04 et suivantes) installez `libfuse2t64`, ou extrayez
+> l'application avec `--appimage-extract` pour vous en passer. **(2)** Les binaires sont
+> compilés sur une image Ubuntu récente : sur une distribution nettement plus ancienne,
+> le lancement peut échouer sur un message `GLIBC_2.xx not found`. L'AppImage n'y change
+> rien — elle embarque les bibliothèques de l'application, pas la bibliothèque C du système.
+
 ## Ce que l'application fait sur votre machine
 
 - Elle **lit** l'état du matériel : capteurs thermiques, ventilateurs, processus,
@@ -56,11 +82,14 @@ Cliquez sur **Informations complémentaires**, puis sur **Exécuter quand même*
 
 Certaines mesures dépendent de ce que le système accepte d'exposer :
 
-| Mesure | macOS | Windows |
-|---|---|---|
-| Températures | ✅ capteurs IOHID | ✅ si le pilote les expose |
-| Ventilateurs | ✅ SMC | ❌ indisponible — aucun pilote noyau n'expose la vitesse |
-| Énergie par processus | ✅ mesure noyau réelle | 🟡 estimation, signalée comme telle |
+| Mesure | macOS | Linux | Windows |
+|---|---|---|---|
+| Températures | ✅ capteurs IOHID | ✅ `hwmon` | ✅ si le pilote les expose |
+| Ventilateurs | ✅ SMC | ✅ `/sys/class/hwmon` | ❌ indisponible — aucun pilote noyau n'expose la vitesse |
+| Énergie par processus | ✅ mesure noyau réelle | 🟡 estimation, signalée comme telle | 🟡 estimation, signalée comme telle |
+
+Sur le poste d'un administrateur, Linux est donc **mieux servi que Windows** : c'est la
+seule des deux plateformes non-Apple où la vitesse des ventilateurs est réellement lue.
 
 Une valeur absente est affichée comme telle — elle n'est jamais inventée ni extrapolée.
 
