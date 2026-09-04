@@ -15,6 +15,32 @@ macOS** (Linux en dev). C'est la déclinaison « PC » de l'app mobile HILAL —
 > l'interface, et le système d'exploitation reste seul juge des droits. **L'app mobile,
 > elle, reste strictement en lecture seule** — la sandbox iOS/Android l'impose.
 
+## Installer (utilisateurs)
+
+Les binaires sont publiés dans les **[Releases GitHub](../../releases)** — un `.dmg`
+universel pour macOS, un installeur `.exe` pour Windows.
+
+> 🪤 **Ne pas confondre avec les artefacts de workflow.** Un artefact `upload-artifact`
+> expire (90 jours) et exige d'être connecté à GitHub : ce n'est pas un canal de
+> distribution. C'est ce qui avait fait que, jusqu'au 2026-09-04, la seule version
+> publiquement téléchargeable était la **1.0.0 de juin**, alors que 1.1.0 et 1.2.0
+> étaient taguées et construites. Depuis, un tag `desktop-vX.Y.Z` publie la Release
+> automatiquement (étape finale des deux workflows de build).
+
+**⚠️ Les binaires ne sont pas signés** — aucun certificat éditeur n'est acheté pour ce
+projet. Au premier lancement :
+
+- **macOS** : le double-clic affiche « *ne peut pas être ouvert* » ou « *est endommagé* »
+  (message trompeur : le fichier n'est pas corrompu, il est non signé).
+  → **clic droit** sur l'app → **Ouvrir** → **Ouvrir**. Le double-clic simple ne propose
+  pas cette option. En dernier recours : `xattr -cr "/Applications/HILAL Desktop.app"`.
+- **Windows** : SmartScreen affiche « *Windows a protégé votre ordinateur* ».
+  → **Informations complémentaires** → **Exécuter quand même**.
+
+Ce texte est aussi le corps de chaque Release : il vit dans **`desktop/RELEASE_NOTES.md`**,
+que les deux workflows passent à `gh release create --notes-file`. Le modifier met à jour
+les Releases suivantes — pas celles déjà publiées.
+
 ## Ce que ça affiche
 
 Interface **HUD « HILAL//MONITEUR »** (design *Mac Health Dashboard*) : barre de titre
@@ -128,10 +154,19 @@ la convention « les 3 langues sont maintenues de front » devient une porte blo
 Un **tag `desktop-vX.Y.Z`** (ou *Run workflow* manuel) déclenche **les deux** builds en
 parallèle, chacun sur son OS natif (un `.exe` ne se compile pas depuis macOS, ni l'inverse) :
 
-| Workflow | Runner | Artefact |
-|---|---|---|
-| `desktop-windows.yml` | `windows-latest` | `hilal-desktop-windows` — installeur **NSIS (.exe)** |
-| `desktop-macos.yml` | `macos-latest` | `hilal-desktop-macos` — **.dmg + .app universels** (Intel + Apple Silicon) |
+| Workflow | Runner | Artefact (éphémère) | Attaché à la Release |
+|---|---|---|---|
+| `desktop-windows.yml` | `windows-latest` | `hilal-desktop-windows` — installeur **NSIS (.exe)** + `.exe` portable | l'installeur NSIS |
+| `desktop-macos.yml` | `macos-latest` | `hilal-desktop-macos` — **.dmg + .app universels** (Intel + Apple Silicon) | le `.dmg` |
+
+**Sur un tag**, chaque workflow publie en plus son binaire dans la **Release GitHub** du
+tag (`gh release create … || gh release upload --clobber`). Les deux visent la même
+Release en parallèle : celui qui arrive second échoue sur `create`, l'erreur est absorbée,
+puis chacun téléverse son fichier. Le `.app` et l'`.exe` portable restent dans l'artefact
+uniquement — une page de téléchargement n'a besoin que d'un fichier par plateforme.
+
+Sur un *Run workflow* **manuel**, l'étape de publication est sautée
+(`if: startsWith(github.ref, 'refs/tags/')`) : il n'y a pas de tag auquel attacher.
 
 ⚠️ Ces workflows **ne se déclenchent pas** sur push `master` (pas d'interférence avec
 l'OTA mobile `eas-update.yml`).

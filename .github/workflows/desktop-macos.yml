@@ -1,7 +1,8 @@
 name: Desktop · build macOS (.dmg)
 
 # Build manuel (workflow_dispatch) ou sur tag `desktop-vX.Y.Z` (déclenche aussi le build Windows).
-# Produit un .app + .dmg UNIVERSEL (Intel + Apple Silicon) en artefact.
+# Produit un .app + .dmg UNIVERSEL (Intel + Apple Silicon) en artefact, ET — sur un
+# tag — publie le .dmg dans une Release GitHub (voir la dernière étape).
 # Signature Developer ID + notarisation : automatiques SI les secrets Apple sont
 # configurés (voir desktop/README.md) ; sinon build NON signé (test uniquement).
 # Ne se déclenche PAS sur push master (n'interfère pas avec l'OTA mobile).
@@ -14,6 +15,10 @@ on:
 jobs:
   build-macos:
     runs-on: macos-latest
+    # `gh release create/upload` écrit sur le dépôt : sans ceci le token est
+    # en lecture seule et la publication échoue en 403.
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: desktop
@@ -82,3 +87,38 @@ jobs:
             desktop/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             desktop/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
           if-no-files-found: error
+
+      # ───────────────────────────────────────────────── publication de la Release
+      # Un artefact `upload-artifact` EXPIRE (90 jours par défaut) et exige d'être
+      # connecté à GitHub pour être téléchargé : ce n'est PAS un canal de distribution.
+      # Constat du 2026-09-04 : seule la Release 1.0.0 (juin) était publique, alors que
+      # 1.1.0 et 1.2.0 étaient taguées — deux versions invisibles pour qui arrive sur
+      # le dépôt. Sur un tag, on publie donc une vraie Release avec le .dmg attaché.
+      #
+      # 🪤 Les DEUX workflows (macOS et Windows) visent la MÊME Release et tournent en
+      #    parallèle : `create` échoue pour celui qui arrive second, d'où le `|| echo`.
+      #    Chacun téléverse ensuite SON fichier ; `--clobber` rend l'étape rejouable.
+      # ⚠️ Si la signature Apple est activée un jour (secrets présents), mettre à jour
+      #    `desktop/RELEASE_NOTES.md` : il décrit le contournement Gatekeeper.
+      # 🔒 Le nom du tag passe par `$GITHUB_REF_NAME` (variable d'environnement), jamais
+      #    par une interpolation `${{ }}` dans le shell : pas de surface d'injection.
+      - name: Publier la Release (tag uniquement)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Sans `failglob`, un glob sans correspondance est passé LITTÉRALEMENT à `gh`,
+          # qui échoue alors sur un message incompréhensible. Vérifié en simulation.
+          shopt -s failglob
+          TAG="$GITHUB_REF_NAME"
+          gh release create "$TAG" \
+            --title "HILAL Desktop ${TAG#desktop-v}" \
+            --notes-file RELEASE_NOTES.md \
+            --verify-tag \
+            || echo "Release déjà créée (probablement par le build Windows) — on enchaîne."
+          gh release upload "$TAG" \
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg \
+            --clobber
