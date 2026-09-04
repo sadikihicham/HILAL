@@ -41,3 +41,7 @@ const S: Record<Lang, Record<string, string>> = {
 };
 
 export const t = (k: string, l: Lang) => S[l]?.[k] ?? S.fr[k] ?? k;
+
+// Clés d'une langue, triées — sert UNIQUEMENT à la porte de parité (`tests/i18n.test.ts`).
+// Sans elle, `S` reste privé et la parité des 3 langues n'est vérifiable par rien.
+export const langKeys = (l: Lang): string[] => Object.keys(S[l]).sort();
