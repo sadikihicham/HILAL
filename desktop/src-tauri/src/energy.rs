@@ -86,24 +86,36 @@ mod sys {
         pub fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut RusageInfoV6) -> c_int;
     }
 
-    /// Compteur cumulé en nanojoules, ou `None` si le noyau refuse (autre utilisateur,
-    /// processus disparu, saveur non supportée).
-    pub fn energy_nj(pid: u32) -> Option<u64> {
+    /// Compteur cumulé en nanojoules ET date de démarrage du processus, ou `None` si le
+    /// noyau refuse (autre utilisateur, processus disparu, saveur non supportée).
+    ///
+    /// La date de démarrage est indispensable : un PID recyclé réutilise le même numéro
+    /// pour un processus different, dont le compteur d'énergie repart d'ailleurs. Sans
+    /// elle, la différence entre deux relevés n'a aucun sens.
+    pub fn energy_sample(pid: u32) -> Option<(u64, u64)> {
         let mut info = RusageInfoV6::default();
         // SAFETY : `info` est un `rusage_info_v6` complet et aligné, vivant pendant
         // l'appel. Le noyau écrit au plus `size_of::<RusageInfoV6>()` octets, et
         // n'écrit rien du tout quand il renvoie une erreur.
         let rc = unsafe { proc_pid_rusage(pid as c_int, RUSAGE_INFO_V6, &mut info) };
-        (rc == 0).then_some(info.ri_energy_nj)
+        (rc == 0).then_some((info.ri_energy_nj, info.ri_proc_start_abstime))
     }
 }
 
 /// Convertit le compteur cumulé du noyau en puissance instantanée, par différence
 /// entre deux relevés. Le premier passage sur un PID ne produit rien (pas de point de
 /// comparaison) — c'est normal, la valeur apparaît au tick suivant.
+/// Au-delà de cette fenêtre, la différence de compteurs ne veut plus rien dire : des PID
+/// ont été recyclés, et diviser par une longue durée produit des watts fantaisistes. Le
+/// cas se produit quand l'utilisateur quitte la vue Processus puis y revient — le frontend
+/// arrête de sonder, le backend garde sa table. On repart alors d'un relevé neuf.
+const MAX_WINDOW_S: f64 = 10.0;
+
 #[derive(Default)]
 pub struct EnergyMeter {
-    previous: HashMap<u32, u64>,
+    /// PID -> (nanojoules cumulés, date de démarrage). La date distingue un processus
+    /// d'un autre ayant hérité du même PID.
+    previous: HashMap<u32, (u64, u64)>,
 }
 
 impl EnergyMeter {
@@ -120,22 +132,30 @@ impl EnergyMeter {
         let _ = (pids, elapsed, &mut out, &mut self.previous);
         #[cfg(target_os = "macos")]
         {
+            // Une fenêtre trop longue ne mesure plus rien d'exploitable (cf. MAX_WINDOW_S).
+            let utilisable = elapsed > 0.0 && elapsed <= MAX_WINDOW_S;
             let mut current = HashMap::with_capacity(pids.len());
             for &pid in pids {
-                let Some(nj) = sys::energy_nj(pid) else { continue };
-                current.insert(pid, nj);
-                // 🪤 Le relevé de référence doit être pris MÊME quand `elapsed` vaut 0
-                // (tout premier appel). Un `return` anticipé ici laissait `previous`
-                // vide, si bien que l'appel SUIVANT n'avait toujours aucun point de
-                // comparaison : l'énergie n'apparaissait jamais. Bug trouvé par le test
-                // d'intégration `enumere_le_vrai_systeme_et_mesure_l_energie`.
-                if elapsed > 0.0 {
-                    if let Some(&before) = self.previous.get(&pid) {
-                        // `saturating_sub` : un PID recyclé peut faire reculer le compteur.
-                        let delta = nj.saturating_sub(before);
-                        out.insert(pid, delta as f64 / 1e9 / elapsed);
-                    }
+                let Some((nj, start)) = sys::energy_sample(pid) else { continue };
+                current.insert(pid, (nj, start));
+                // 🪤 Le relevé de référence doit être pris MÊME quand la fenêtre est
+                // inutilisable (tout premier appel, ou retour dans la vue après une
+                // absence). Un `return` anticipé ici laissait `previous` vide, si bien
+                // que l'appel SUIVANT n'avait toujours aucun point de comparaison :
+                // l'énergie n'apparaissait jamais. Bug trouvé par le test d'intégration
+                // `enumere_le_vrai_systeme_et_mesure_l_energie`.
+                if !utilisable {
+                    continue;
                 }
+                let Some(&(before, start_avant)) = self.previous.get(&pid) else { continue };
+                // Même PID mais démarrage différent = processus RECYCLÉ. Sa différence de
+                // compteurs n'a aucun sens ; `saturating_sub` ne l'attrape pas (il ne
+                // couvre que la régression, or le nouveau processus peut avoir cumulé
+                // DAVANTAGE que l'ancien et produire des watts absurdes).
+                if start_avant != start {
+                    continue;
+                }
+                out.insert(pid, nj.saturating_sub(before) as f64 / 1e9 / elapsed);
             }
             // On repart de la photo courante : les PID morts disparaissent d'eux-mêmes,
             // la table ne peut pas croître sans fin.
@@ -155,9 +175,48 @@ mod tests {
 
     #[test]
     fn disposition_de_rusage_info_v6() {
-        // 16 octets d'UUID + 47 champs u64 + 9 réservés = 464. Un décalage ici ferait
-        // lire n'importe quel autre champ à la place de l'énergie.
+        // 16 octets d'UUID + 47 champs u64 + 9 réservés = 464.
         assert_eq!(std::mem::size_of::<sys::RusageInfoV6>(), 464);
+
+        // 🪤 La TAILLE ne suffit pas : `ri_reserved: [u64; 9]` laisse du mou. Insérer un
+        // champ avant `ri_energy_nj` en retirant un mot de la réserve garderait 464
+        // octets — taille toujours juste, test toujours vert, et on lirait `ri_penergy_nj`
+        // à la place de l'énergie : des watts plausibles mais FAUX, indétectables. Seuls
+        // les décalages ferment ce trou. Valeurs relevées sur <sys/resource.h> du SDK.
+        assert_eq!(std::mem::offset_of!(sys::RusageInfoV6, ri_energy_nj), 336);
+        assert_eq!(std::mem::offset_of!(sys::RusageInfoV6, ri_proc_start_abstime), 80);
+    }
+
+    #[test]
+    fn un_pid_recycle_ne_produit_pas_de_watts_fantaisistes() {
+        // On ne peut pas provoquer un vrai recyclage de PID dans un test ; on vérifie donc
+        // l'invariant à la main sur la table interne : même PID, démarrage différent =
+        // aucune puissance publiée. Sans cette garde, l'ancien compteur servirait de
+        // référence au nouveau processus (`saturating_sub` ne couvre que la régression).
+        let mut meter = EnergyMeter::default();
+        let pid = std::process::id();
+        meter.sample(&[pid], 1.0);
+        // Falsifie la date de démarrage mémorisée : simule un PID réattribué.
+        if let Some(v) = meter.previous.get_mut(&pid) {
+            v.1 = v.1.wrapping_add(1);
+            v.0 = 0; // et un compteur qui repart de zéro, comme un processus neuf
+        }
+        assert!(
+            !meter.sample(&[pid], 1.0).contains_key(&pid),
+            "un démarrage différent doit invalider la comparaison"
+        );
+    }
+
+    #[test]
+    fn une_fenetre_trop_longue_repart_d_un_releve_neuf() {
+        // Cas réel : l'utilisateur quitte la vue Processus puis y revient 10 min après.
+        // Diviser par 600 s une table vieille de 10 min ne mesure rien.
+        let mut meter = EnergyMeter::default();
+        let pid = std::process::id();
+        meter.sample(&[pid], 1.0);
+        assert!(meter.sample(&[pid], 600.0).is_empty(), "fenêtre hors bornes = rien publié");
+        // Mais la référence a bien été rafraîchie : le tick suivant remesure.
+        assert!(meter.sample(&[pid], 1.0).contains_key(&pid), "la mesure doit reprendre");
     }
 
     #[test]
