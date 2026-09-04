@@ -16,7 +16,7 @@ import pkg from '../package.json';
 const box = vi.hoisted(() => ({
   metrics: null as unknown as Metrics,
   procs: null as unknown as ProcList,
-  kills: [] as { pid: number; force: boolean }[],
+  kills: [] as { pid: number; force: boolean; startTime: number }[],
   procCalls: [] as { sort: string; filter: string }[],
   tray: [] as { title: string | null; tooltip: string }[],
   trayVisible: true,
@@ -29,8 +29,8 @@ vi.mock('../src/lib/metrics', () => ({
     box.procCalls.push({ sort, filter });
     return box.procs;
   },
-  killProcess: async (pid: number, force: boolean) => {
-    box.kills.push({ pid, force });
+  killProcess: async (pid: number, force: boolean, startTime: number) => {
+    box.kills.push({ pid, force, startTime });
     return { ok: true, reason: force ? 'killForced' : 'killSent' };
   },
   setTrayLabel: async (title: string | null, tooltip: string) => { box.tray.push({ title, tooltip }); },
@@ -70,7 +70,8 @@ const makeMetrics = (over: Partial<Metrics> = {}): Metrics => ({
 
 const proc = (over: Partial<Proc> = {}): Proc => ({
   pid: 412, name: 'firefox', cpu: 62.4, mem: 1.8 * 2 ** 30, diskRead: 120e3, diskWrite: 40e3,
-  watts: 3.2, user: 'sadiki', mine: true, isSelf: false, runTime: 7200, status: 'Run', ...over,
+  watts: 3.2, user: 'sadiki', mine: true, isSelf: false, runTime: 7200,
+  status: 'Run', startTime: 1_700_000_000, ...over,
 });
 
 const makeProcs = (items: Proc[] = [proc()]): ProcList =>
@@ -258,13 +259,16 @@ describe('carte thermique', () => {
     expect(screen.getByText('35°C')).toBeTruthy();  // stockage (NAND)
     // Les -9201 °C ne doivent JAMAIS atteindre l'écran, ni comme point le plus chaud.
     expect(screen.queryByText(/-920/)).toBeNull();
-    expect(screen.getByText(/Point le plus chaud 44°C/)).toBeTruthy();
+    // Le libellé accompagne le chiffre : sans lui, « 44 °C » n'est pas auditable.
+    expect(screen.getByText(/Point le plus chaud PMU tdie1 44°C/)).toBeTruthy();
   });
 
-  it('annonce combien de capteurs ont été écartés (chiffre auditable)', async () => {
+  it('le décompte affiché tombe juste : 3 affichés + 3 non retenus = 6 lus', async () => {
     render(<App />);
     await charge();
-    expect(screen.getByText(/2 écartés \(valeurs aberrantes\)/)).toBeTruthy();
+    // Fixture : 6 capteurs bruts = 2 aberrants + 1 doublon de libellé + 3 retenus.
+    // L'ancien décompte n'annonçait que les 2 aberrants et perdait le doublon en route.
+    expect(screen.getByText(/3 capteurs · 3 non retenus \(aberrants ou en double\)/)).toBeTruthy();
   });
 
   it('un ventilateur à 0 tr/min est « à l’arrêt », pas « indisponible »', async () => {
@@ -300,6 +304,14 @@ describe('vue Processus', () => {
     fireEvent.click(screen.getByTitle('Processus'));
     return screen.findByText('firefox');
   };
+
+  // La confirmation d'arrêt est protégée par un délai (cf. « la confirmation d'arrêt ne
+  // doit pas pouvoir être contournée ») : sans horloge pilotée, deux `fireEvent.click`
+  // consécutifs seraient pris pour un double-clic et bloqués.
+  let horloge = 2_000_000;
+  const attendreLecture = () => { horloge += 900; };
+  beforeEach(() => { horloge = 2_000_000; vi.spyOn(Date, 'now').mockImplementation(() => horloge); });
+  afterEach(() => { vi.restoreAllMocks(); });
 
   it('liste les processus avec leurs colonnes', async () => {
     await ouvrir();
@@ -338,16 +350,18 @@ describe('vue Processus', () => {
     expect(box.kills).toHaveLength(0);
     expect(screen.getByText(/Demander à ce processus de quitter/)).toBeTruthy();
 
+    attendreLecture();
     fireEvent.click(screen.getByText(/Quitter ✓/));
-    expect(box.kills).toEqual([{ pid: 412, force: false }]);
+    expect(box.kills).toEqual([{ pid: 412, force: false, startTime: 1_700_000_000 }]);
   });
 
   it('l’arrêt forcé annonce la perte de travail et transmet force=true', async () => {
     await ouvrir();
     fireEvent.click(screen.getByText('Forcer'));
     expect(screen.getByText(/travail non enregistré sera perdu/)).toBeTruthy();
+    attendreLecture();
     fireEvent.click(screen.getByText(/Forcer ✓/));
-    expect(box.kills).toEqual([{ pid: 412, force: true }]);
+    expect(box.kills).toEqual([{ pid: 412, force: true, startTime: 1_700_000_000 }]);
   });
 
   it('annuler une confirmation n’envoie rien', async () => {
@@ -404,5 +418,81 @@ describe('accent gris (remplace le rouge)', () => {
     render(<App />);
     await charge();
     expect(localStorage.getItem('display.accent')).toBe('gray');
+  });
+});
+
+describe('la confirmation d’arrêt ne doit pas pouvoir être contournée', () => {
+  const ouvrir = async () => {
+    render(<App />);
+    await charge();
+    fireEvent.click(screen.getByTitle('Processus'));
+    return screen.findByText('firefox');
+  };
+
+  // Le temps est piloté : c'est le SEUL moyen de distinguer un double-clic (deux
+  // événements en quelques dizaines de ms) d'une décision réelle (lire puis cliquer).
+  let horloge = 1_000_000;
+  const avancer = (ms: number) => { horloge += ms; };
+  beforeEach(() => { horloge = 1_000_000; vi.spyOn(Date, 'now').mockImplementation(() => horloge); });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('un DOUBLE-CLIC sur « Quitter » ne tue pas', async () => {
+    await ouvrir();
+    // Même référence de nœud entre les deux clics : exactement ce que produit un
+    // double-clic réel sur un pixel immobile.
+    const bouton = screen.getByText('Quitter');
+    fireEvent.click(bouton);
+    avancer(80);
+    fireEvent.click(bouton);
+    expect(box.kills).toHaveLength(0);
+  });
+
+  it('un double-clic sur « Forcer » ne tue pas non plus', async () => {
+    await ouvrir();
+    const bouton = screen.getByText('Forcer');
+    fireEvent.click(bouton);
+    avancer(80);
+    fireEvent.click(bouton);
+    expect(box.kills).toHaveLength(0);
+  });
+
+  it('cliquer « ✓ » trop vite après l’armement est ignoré, même sur un autre nœud', async () => {
+    await ouvrir();
+    fireEvent.click(screen.getByText('Quitter'));
+    avancer(120);
+    fireEvent.click(screen.getByText(/Quitter ✓/));
+    expect(box.kills).toHaveLength(0);
+    // La question reste posée : rien n'a été fait dans le dos de l'utilisateur.
+    expect(screen.getByText(/Demander à ce processus de quitter/)).toBeTruthy();
+  });
+
+  it('une confirmation DÉLIBÉRÉE (après lecture) passe normalement', async () => {
+    await ouvrir();
+    fireEvent.click(screen.getByText('Quitter'));
+    avancer(900);
+    fireEvent.click(screen.getByText(/Quitter ✓/));
+    expect(box.kills).toEqual([{ pid: 412, force: false, startTime: 1_700_000_000 }]);
+  });
+
+  // Sans cette transmission, le backend ne peut pas refuser un PID réattribué : toute la
+  // garde TOCTOU serait rompue côté frontend, silencieusement.
+  it('la date de démarrage AFFICHÉE est transmise au backend', async () => {
+    box.procs = makeProcs([proc({ pid: 4711, name: 'slack', startTime: 1_699_000_042 })]);
+    render(<App />);
+    await charge();
+    fireEvent.click(screen.getByTitle('Processus'));
+    await screen.findByText('slack');
+    fireEvent.click(screen.getByText('Quitter'));
+    avancer(900);
+    fireEvent.click(screen.getByText(/Quitter ✓/));
+    expect(box.kills).toEqual([{ pid: 4711, force: false, startTime: 1_699_000_042 }]);
+  });
+
+  it('« Annuler » reste immédiat : rien de destructif à protéger', async () => {
+    await ouvrir();
+    fireEvent.click(screen.getByText('Forcer'));
+    fireEvent.click(screen.getByText('Annuler'));
+    expect(box.kills).toHaveLength(0);
+    expect(screen.queryByText(/travail non enregistré/)).toBeNull();
   });
 });

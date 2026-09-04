@@ -249,6 +249,18 @@ mod tests {
         assert_eq!(std::mem::size_of::<SmcVersion>(), 6);
         assert_eq!(std::mem::size_of::<SmcPLimitData>(), 16);
         assert_eq!(std::mem::size_of::<SmcKeyInfo>(), 12);
+
+        // 🪤 La taille NE SUFFIT PAS : permuter `p_limit_data` et `key_info` garde 80
+        // octets et corrompt toutes les lectures — test vert, données fausses. Les
+        // décalages sont la seule assertion qui ferme ce trou.
+        assert_eq!(std::mem::offset_of!(SmcKeyData, key), 0);
+        assert_eq!(std::mem::offset_of!(SmcKeyData, vers), 4);
+        assert_eq!(std::mem::offset_of!(SmcKeyData, p_limit_data), 12);
+        assert_eq!(std::mem::offset_of!(SmcKeyData, key_info), 28);
+        assert_eq!(std::mem::offset_of!(SmcKeyData, result), 40);
+        assert_eq!(std::mem::offset_of!(SmcKeyData, data8), 42);
+        assert_eq!(std::mem::offset_of!(SmcKeyData, data32), 44);
+        assert_eq!(std::mem::offset_of!(SmcKeyData, bytes), 48);
     }
 
     #[test]

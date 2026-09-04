@@ -34,6 +34,13 @@ const PROC_LIMIT = 200;
 // Anti-rafale sur la recherche : sans cela, chaque frappe déclencherait une énumération
 // complète des processus.
 const FILTER_DEBOUNCE_MS = 250;
+// 🔴 Garde-fou de la SEULE action destructive de l'app. La confirmation apparaît
+// exactement SOUS le curseur, à la place du bouton qui vient d'être cliqué : un
+// double-clic — deux événements à moins de ~250 ms sur un pixel immobile — l'activait
+// donc sans que la question ait pu être lue. Les clés de réconciliation React ne
+// suffisent PAS : elles font remplacer le nœud, mais dans un vrai navigateur le second
+// clic atteint le nœud de remplacement. La défense doit être temporelle.
+const CONFIRM_ARM_MS = 400;
 const HISTORY_MAX = 60;  // 60 points à 1 Hz = la « fenêtre 60 s » annotée sur le graphique.
 const CHART_W = 460;
 const CHART_H = 180;
@@ -128,11 +135,11 @@ const mockMetrics = (): Metrics => {
 // la colonne « mesuré » ; une ligne à null illustre la bascule vers l'estimation.
 const mockProcs = (sort: ProcSort, filter: string): ProcList => {
   const base: Proc[] = [
-    { pid: 412, name: 'firefox', cpu: 62.4, mem: 1.8 * 2 ** 30, diskRead: 120e3, diskWrite: 40e3, watts: 3.2, user: 'sadiki', mine: true, isSelf: false, runTime: 7200, status: 'Run' },
-    { pid: 980, name: 'node', cpu: 31.7, mem: 640 * 2 ** 20, diskRead: 2e6, diskWrite: 5e5, watts: 1.4, user: 'sadiki', mine: true, isSelf: false, runTime: 1800, status: 'Run' },
-    { pid: 143, name: 'WindowServer', cpu: 12.2, mem: 420 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: 0.9, user: 'root', mine: false, isSelf: false, runTime: 86400, status: 'Run' },
-    { pid: 1, name: 'launchd', cpu: 0.1, mem: 24 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: null, user: 'root', mine: false, isSelf: false, runTime: 86400, status: 'Sleep' },
-    { pid: 7788, name: 'hilal-desktop', cpu: 1.9, mem: 120 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: 0.2, user: 'sadiki', mine: true, isSelf: true, runTime: 300, status: 'Run' },
+    { pid: 412, name: 'firefox', cpu: 62.4, mem: 1.8 * 2 ** 30, diskRead: 120e3, diskWrite: 40e3, watts: 3.2, user: 'sadiki', mine: true, isSelf: false, runTime: 7200, status: 'Run', startTime: 1_700_000_000 - 7200 },
+    { pid: 980, name: 'node', cpu: 31.7, mem: 640 * 2 ** 20, diskRead: 2e6, diskWrite: 5e5, watts: 1.4, user: 'sadiki', mine: true, isSelf: false, runTime: 1800, status: 'Run', startTime: 1_700_000_000 - 1800 },
+    { pid: 143, name: 'WindowServer', cpu: 12.2, mem: 420 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: 0.9, user: 'root', mine: false, isSelf: false, runTime: 86400, status: 'Run', startTime: 1_700_000_000 - 86400 },
+    { pid: 1, name: 'launchd', cpu: 0.1, mem: 24 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: null, user: 'root', mine: false, isSelf: false, runTime: 86400, status: 'Sleep', startTime: 1_700_000_000 - 86400 },
+    { pid: 7788, name: 'hilal-desktop', cpu: 1.9, mem: 120 * 2 ** 20, diskRead: 0, diskWrite: 0, watts: 0.2, user: 'sadiki', mine: true, isSelf: true, runTime: 300, status: 'Run', startTime: 1_700_000_000 - 300 },
   ];
   const needle = filter.trim().toLowerCase();
   const items = base.filter((p) => !needle || p.name.toLowerCase().includes(needle) || String(p.pid).includes(needle));
@@ -498,7 +505,11 @@ function ThermalPanel({ c }: { c: Ctx }) {
           </span>
         </div>
         {thermal.hottest ? (
-          <span style={st.panelMeta}>{t('hottest', lang)} {Math.round(thermal.hottest.temp)}°C</span>
+          // Le LIBELLÉ accompagne le chiffre : « 52 °C » seul, à côté d'un processeur
+          // affiché à 44 °C, laisse l'utilisateur sans moyen de savoir d'où il sort.
+          <span style={st.panelMeta}>
+            {t('hottest', lang)} {thermal.hottest.label} {Math.round(thermal.hottest.temp)}°C
+          </span>
         ) : null}
       </div>
 
@@ -550,13 +561,13 @@ const PROC_COLS: { id: ProcSort; key: string }[] = [
 function ProcessesView({ c, procs, sort, filter, onSort, onFilter, onKill, busyPid, notice }: {
   c: Ctx; procs: ProcList | null; sort: ProcSort; filter: string;
   onSort: (s: ProcSort) => void; onFilter: (v: string) => void;
-  onKill: (pid: number, force: boolean) => void;
+  onKill: (pid: number, force: boolean, startTime: number) => void;
   busyPid: number | null; notice: string | null;
 }) {
   const { st, th, ac, lang } = c;
   // Confirmation À DEUX TEMPS, portée par la ligne elle-même. Pas de `window.confirm` :
   // une modale native bloque le webview et gèlerait le sondage en arrière-plan.
-  const [confirm, setConfirm] = useState<{ pid: number; force: boolean } | null>(null);
+  const [confirm, setConfirm] = useState<{ pid: number; force: boolean; at: number } | null>(null);
   const [openPid, setOpenPid] = useState<number | null>(null);
 
   const sortBtn = (id: ProcSort, label: string) => (
@@ -635,20 +646,30 @@ function ProcessesView({ c, procs, sort, filter, onSort, onFilter, onKill, busyP
                 <div style={st.procActions}>
                   {pending ? (
                     <>
-                      <button className="hud-primary" disabled={busyPid === p.pid}
-                        onClick={() => { onKill(p.pid, confirm.force); setConfirm(null); }}
+                      <button key="confirm" className="hud-primary" disabled={busyPid === p.pid}
+                        onClick={() => {
+                          // Trop tôt après l'armement = second clic d'un double-clic, pas
+                          // une décision. On l'ignore silencieusement plutôt que d'exécuter.
+                          if (Date.now() - confirm.at < CONFIRM_ARM_MS) return;
+                          onKill(p.pid, confirm.force, p.startTime);
+                          setConfirm(null);
+                        }}
                         style={{ ...st.procBtn, background: confirm.force ? th.crit : ac.acc, color: ac.onAcc }}>
                         {t(confirm.force ? 'forceQuitProc' : 'quitProc', lang)} ✓
                       </button>
-                      <button className="hud-hoverable" onClick={() => setConfirm(null)} style={st.procBtn}>
+                      <button key="cancel" className="hud-hoverable" onClick={() => setConfirm(null)} style={st.procBtn}>
                         {t('confirmCancel', lang)}
                       </button>
                     </>
                   ) : (
                     <>
-                      <button className="hud-hoverable" onClick={() => setConfirm({ pid: p.pid, force: false })}
+                      {/* Clés distinctes de celles de la branche « confirmer » : React
+                          DÉTRUIT ces nœuds au lieu de les recycler en boutons d'arrêt. */}
+                      <button key="ask-quit" className="hud-hoverable"
+                        onClick={() => setConfirm({ pid: p.pid, force: false, at: Date.now() })}
                         style={{ ...st.procBtn, ...(warn ? { color: th.warn } : null) }}>{t('quitProc', lang)}</button>
-                      <button className="hud-hoverable" onClick={() => setConfirm({ pid: p.pid, force: true })}
+                      <button key="ask-force" className="hud-hoverable"
+                        onClick={() => setConfirm({ pid: p.pid, force: true, at: Date.now() })}
                         style={{ ...st.procBtn, color: th.crit }}>{t('forceQuitProc', lang)}</button>
                     </>
                   )}
@@ -964,10 +985,10 @@ export default function App() {
 
   /** ⚠️ Seule action de HILAL qui modifie la machine. La confirmation a déjà eu lieu
    *  dans la ligne concernée ; ici on exécute et on rend compte, succès comme échec. */
-  async function onKill(pid: number, force: boolean) {
+  async function onKill(pid: number, force: boolean, startTime: number) {
     setBusyPid(pid);
     try {
-      const r = await killProcess(pid, force);
+      const r = await killProcess(pid, force, startTime);
       setNotice(r.reason);
     } catch {
       setNotice('killDenied');
@@ -1156,7 +1177,8 @@ export default function App() {
             <CoresView c={c} />
           ) : view === 'processes' ? (
             <ProcessesView c={c} procs={procs} sort={procSort} filter={procFilter}
-              onSort={changeProcSort} onFilter={setProcFilter} onKill={(pid, f) => { void onKill(pid, f); }}
+              onSort={changeProcSort} onFilter={setProcFilter}
+              onKill={(pid, f, st) => { void onKill(pid, f, st); }}
               busyPid={busyPid} notice={notice} />
           ) : (
             <SettingsView c={c} mode={mode} accent={accent} tray={trayMetric} onLang={changeLang}
