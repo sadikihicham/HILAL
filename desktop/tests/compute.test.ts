@@ -295,8 +295,41 @@ describe('isCriticalProcess', () => {
     expect(isCriticalProcess(' windowserver ', 200)).toBe(true);
     expect(isCriticalProcess('WindowServer', 200)).toBe(true);
   });
+  // Ajouté le 2026-09-04 (audit, constat 08) : la liste Linux ne comptait que
+  // 6 entrées contre 14 pour macOS, sur la plateforme qui venait d'être livrée.
+  it('couvre l’accès distant et le réseau sous Linux', () => {
+    // Tuer sshd sur une machine sans écran coupe le seul accès qui reste.
+    expect(isCriticalProcess('sshd', 780)).toBe(true);
+    expect(isCriticalProcess('NetworkManager', 812)).toBe(true);
+    expect(isCriticalProcess('wpa_supplicant', 815)).toBe(true);
+  });
+  it('couvre le socle systemd et polkit', () => {
+    for (const n of ['systemd-journald', 'systemd-logind', 'systemd-udevd', 'polkitd', 'dbus-broker']) {
+      expect(isCriticalProcess(n, 300), n).toBe(true);
+    }
+  });
+  it('couvre les gestionnaires d’affichage et compositeurs', () => {
+    for (const n of ['gdm', 'gdm3', 'sddm', 'lightdm', 'Xwayland', 'kwin_wayland', 'mutter']) {
+      expect(isCriticalProcess(n, 1200), n).toBe(true);
+    }
+  });
+  it('couvre la chaîne audio', () => {
+    for (const n of ['pipewire', 'wireplumber', 'pulseaudio']) {
+      expect(isCriticalProcess(n, 1400), n).toBe(true);
+    }
+  });
+  it('kthreadd est reconnu par son NOM, pas par son PID', () => {
+    // 🪤 kthreadd porte le PID 2, que `pid <= 1` n'attrape pas. On ne monte PAS le
+    // seuil à 2 : cette fonction ignore la plateforme, et le PID 2 n'a rien de
+    // critique sous macOS ni Windows. Ces deux assertions verrouillent l'arbitrage.
+    expect(isCriticalProcess('kthreadd', 2)).toBe(true);
+    expect(isCriticalProcess('mon-script', 2)).toBe(false);
+  });
   it('une application ordinaire n’est pas critique', () => {
     expect(isCriticalProcess('firefox', 412)).toBe(false);
+    for (const n of ['node', 'code', 'docker', 'nginx', 'python3']) {
+      expect(isCriticalProcess(n, 900), n).toBe(false);
+    }
   });
 });
 

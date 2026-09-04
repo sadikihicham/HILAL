@@ -237,8 +237,22 @@ const CRITICAL = new Set([
   // Windows
   'system', 'csrss.exe', 'wininit.exe', 'services.exe', 'winlogon.exe', 'lsass.exe',
   'smss.exe', 'svchost.exe', 'dwm.exe', 'explorer.exe',
-  // Linux
-  'systemd', 'init', 'dbus-daemon', 'xorg', 'gnome-shell', 'plasmashell',
+  // Linux — liste étoffée le 2026-09-04 (audit, constat 08). Elle ne comptait que
+  // 6 entrées contre 14 pour macOS, alors que Linux venait d'être livré.
+  // 🪤 `kthreadd` porte le PID 2 : le garde-fou numérique `pid <= 1` ci-dessous ne
+  //    l'attrape PAS. On le couvre par son NOM plutôt que de monter le seuil, car
+  //    cette fonction ne connaît pas la plateforme — un seuil à 2 avertirait à tort
+  //    sur macOS et Windows, où le PID 2 n'a rien de critique.
+  'systemd', 'init', 'kthreadd', 'dbus-daemon', 'dbus-broker',
+  // accès distant et réseau : les tuer coupe la main qui les nourrit sur un serveur
+  'sshd', 'networkmanager', 'wpa_supplicant', 'systemd-networkd', 'systemd-resolved',
+  // socle systemd : journal, sessions, périphériques
+  'systemd-journald', 'systemd-logind', 'systemd-udevd', 'polkitd',
+  // serveurs d'affichage, gestionnaires de session et compositeurs
+  'xorg', 'xwayland', 'gdm', 'gdm3', 'sddm', 'lightdm',
+  'gnome-shell', 'plasmashell', 'kwin_wayland', 'kwin_x11', 'mutter',
+  // audio : sa mort ne casse pas la session mais coupe tout son sans retour
+  'pipewire', 'wireplumber', 'pulseaudio',
 ]);
 
 export const isCriticalProcess = (name: string, pid: number): boolean =>

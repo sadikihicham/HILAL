@@ -212,10 +212,18 @@ pub fn kill(system: &sysinfo::System, pid: u32, force: bool, expected_start: u64
     let Some(proc) = system.process(key) else {
         return KillOutcome { ok: false, reason: "killGone".into() };
     };
+    // 🔴 Audit du 2026-09-04, constat 10 : une date à zéro DÉSACTIVAIT la garde
+    // ci-dessous. L'interface transmet toujours la vraie date, mais l'invariant vivait
+    // dans un commentaire et non dans le code — une commande destructive ne doit pas
+    // offrir de mode « sans vérification » à qui sait la demander. On refuse désormais,
+    // au lieu de tuer à l'aveugle.
+    if expected_start == 0 {
+        return KillOutcome { ok: false, reason: "killNoStart".into() };
+    }
     // Le PID a été réattribué entre l'affichage et le clic : ce n'est plus le même
     // processus. On s'abstient et on le DIT, plutôt que de tuer un innocent en annonçant
-    // « arrêté ». `expected_start == 0` = appelant qui ne vérifie pas (jamais l'UI).
-    if expected_start != 0 && proc.start_time() != expected_start {
+    // « arrêté ».
+    if proc.start_time() != expected_start {
         return KillOutcome { ok: false, reason: "killChanged".into() };
     }
     if force {
@@ -270,6 +278,15 @@ mod tests {
         let refus = kill(&system, pid, true, vraie_date.wrapping_add(1));
         assert!(!refus.ok, "un PID réattribué ne doit pas être tué");
         assert_eq!(refus.reason, "killChanged");
+        assert!(enfant.try_wait().unwrap().is_none(), "le témoin doit être VIVANT");
+
+        // 🔴 Audit du 2026-09-04, constat 10 : une date à ZÉRO désactivait la garde
+        // ci-dessus, offrant un mode « tue sans vérifier » à qui appelait la commande
+        // directement. Le témoin doit rester vivant, et la raison doit être explicite
+        // — surtout pas `killChanged`, qui ferait croire à une réattribution de PID.
+        let sans_date = kill(&system, pid, true, 0);
+        assert!(!sans_date.ok, "une date de démarrage nulle ne doit rien tuer");
+        assert_eq!(sans_date.reason, "killNoStart");
         assert!(enfant.try_wait().unwrap().is_none(), "le témoin doit être VIVANT");
 
         // La bonne date, elle, laisse passer : la garde ne bloque pas l'usage légitime.

@@ -80,6 +80,7 @@ const S: Record<Lang, Record<string, string>> = {
     killChanged: 'Ce numéro désigne désormais un autre processus — rien n’a été arrêté',
     killSelf: 'HILAL ne peut pas s’arrêter lui-même — utilisez « Quitter » dans la barre d’état',
     killNoSignal: 'Arrêt propre indisponible sur cette plateforme — utilisez « Forcer »',
+    killNoStart: 'Demande incomplète : la date de démarrage manque — rien n’a été arrêté',
 
     // Thermique
     thermal: 'Thermique', temperature: 'Température',
@@ -163,6 +164,7 @@ const S: Record<Lang, Record<string, string>> = {
     killChanged: 'That number now refers to a different process — nothing was stopped',
     killSelf: 'HILAL cannot quit itself — use “Quit” in the status bar menu',
     killNoSignal: 'Graceful quit unavailable on this platform — use “Force”',
+    killNoStart: 'Incomplete request: the start time is missing — nothing was stopped',
 
     thermal: 'Thermal', temperature: 'Temperature',
     cpuTemp: 'Processor', batteryTemp: 'Battery', storageTemp: 'Storage',
@@ -244,6 +246,7 @@ const S: Record<Lang, Record<string, string>> = {
     killChanged: 'صار هذا الرقم يشير إلى عملية أخرى — لم يتم إيقاف شيء',
     killSelf: 'لا يستطيع HILAL إنهاء نفسه — استخدم «إنهاء» في قائمة شريط الحالة',
     killNoSignal: 'الإنهاء اللطيف غير متاح على هذه المنصة — استخدم «إجبار»',
+    killNoStart: 'طلب ناقص: وقت البدء مفقود — لم يتم إيقاف شيء',
 
     thermal: 'الحرارة', temperature: 'درجة الحرارة',
     cpuTemp: 'المعالج', batteryTemp: 'البطارية', storageTemp: 'التخزين',
