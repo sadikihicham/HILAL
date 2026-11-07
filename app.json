@@ -18,7 +18,7 @@
       "bundleIdentifier": "com.sadikihicham.hilal"
     },
     "android": {
-      "package": "com.sadikihicham.hilal",
+      "package": "ae.hilal.hilal",
       "adaptiveIcon": {
         "backgroundColor": "#0E1A16",
         "foregroundImage": "./assets/icon-foreground.png"
