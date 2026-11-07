@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 import * as Battery from 'expo-battery';
 import * as Network from 'expo-network';
 import * as Device from 'expo-device';
-import * as FileSystem from 'expo-file-system';
+import { Paths } from 'expo-file-system';
 import * as Brightness from 'expo-brightness';
 
 export type Metrics = {
@@ -18,6 +18,10 @@ export type Metrics = {
 
 const HISTORY_MAX = 40;
 
+async function read<T>(operation: () => Promise<T>): Promise<T | null> {
+  try { return await operation(); } catch { return null; }
+}
+
 const EMPTY: Metrics = {
   battery: null, storage: null, network: null, ramTotal: null, brightness: null,
   device: { model: '—', os: '—' }, batteryHistory: [],
@@ -29,37 +33,37 @@ const EMPTY: Metrics = {
 export function useDeviceMetrics(intervalMs = 3000): { metrics: Metrics; refresh: () => Promise<void> } {
   const [metrics, setMetrics] = useState<Metrics>(EMPTY);
   const aliveRef = useRef(true);
+  const refreshSeqRef = useRef(0);
 
   const refresh = useCallback(async () => {
-    try {
-      const [level, state, lowPower] = await Promise.all([
-        Battery.getBatteryLevelAsync(),
-        Battery.getBatteryStateAsync(),
-        Battery.isLowPowerModeEnabledAsync(),
-      ]);
-      const [free, total] = await Promise.all([
-        FileSystem.getFreeDiskStorageAsync(),
-        FileSystem.getTotalDiskCapacityAsync(),
-      ]);
-      const net = await Network.getNetworkStateAsync();
-      let ip: string | null = null;
-      try { ip = await Network.getIpAddressAsync(); } catch { /* indisponible */ }
-      let brightness: number | null = null;
-      try { brightness = await Brightness.getBrightnessAsync(); } catch { /* indisponible */ }
-      if (!aliveRef.current) return;
-      setMetrics((prev) => ({
-        battery: { level, state, lowPower },
-        storage: { free, total },
-        network: { type: String(net.type ?? 'UNKNOWN'), isConnected: !!net.isConnected, ip },
-        ramTotal: Device.totalMemory ?? null,
-        brightness,
-        device: {
-          model: Device.modelName ?? Device.deviceName ?? '—',
-          os: `${Device.osName ?? ''} ${Device.osVersion ?? ''}`.trim() || '—',
-        },
-        batteryHistory: [...prev.batteryHistory, level].slice(-HISTORY_MAX),
-      }));
-    } catch { /* lecture impossible ce tick */ }
+    const sequence = ++refreshSeqRef.current;
+    const [level, state, lowPower, disk, net, ip, brightness] = await Promise.all([
+      read(() => Battery.getBatteryLevelAsync()),
+      read(() => Battery.getBatteryStateAsync()),
+      read(() => Battery.isLowPowerModeEnabledAsync()),
+      read(async () => ({ free: Paths.availableDiskSpace, total: Paths.totalDiskSpace })),
+      read(() => Network.getNetworkStateAsync()),
+      read(() => Network.getIpAddressAsync()),
+      read(() => Brightness.getBrightnessAsync()),
+    ]);
+    if (!aliveRef.current || sequence !== refreshSeqRef.current) return;
+    const battery = level != null && Number.isFinite(level) && level >= 0 && level <= 1
+      ? { level, state: state ?? Battery.BatteryState.UNKNOWN, lowPower: lowPower ?? false } : null;
+    const storage = disk && Number.isFinite(disk.free) && Number.isFinite(disk.total)
+      && disk.total > 0 && disk.free >= 0 && disk.free <= disk.total ? disk : null;
+    setMetrics((prev) => ({
+      battery,
+      storage,
+      network: net ? { type: String(net.type ?? 'UNKNOWN'), isConnected: !!net.isConnected, ip } : null,
+      ramTotal: Device.totalMemory ?? null,
+      brightness: brightness != null && Number.isFinite(brightness) && brightness >= 0 && brightness <= 1
+        ? brightness : null,
+      device: {
+        model: Device.modelName ?? Device.deviceName ?? '—',
+        os: `${Device.osName ?? ''} ${Device.osVersion ?? ''}`.trim() || '—',
+      },
+      batteryHistory: battery ? [...prev.batteryHistory, battery.level].slice(-HISTORY_MAX) : [],
+    }));
   }, []);
 
   useEffect(() => {
