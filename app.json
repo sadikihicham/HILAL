@@ -41,6 +41,8 @@
         }
       ],
       "expo-status-bar",
+      "./plugins/withLocalNotificationsOnly",
+      "expo-notifications",
       [
         "expo-build-properties",
         {
