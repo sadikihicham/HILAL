@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sadikihicham.hilal"
+      "bundleIdentifier": "ae.hilal.hilal"
     },
     "android": {
       "package": "ae.hilal.hilal",
