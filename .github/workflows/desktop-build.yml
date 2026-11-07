@@ -1,8 +1,8 @@
 name: Desktop · build + Release
 
 # Build manuel (workflow_dispatch) ou sur tag `desktop-vX.Y.Z`.
-# IMPORTANT : ne se déclenche PAS sur push master — n'interfère donc pas avec
-# eas-update.yml (OTA mobile).
+# IMPORTANT : ne se déclenche PAS sur push master ; les applications mobiles
+# hors ligne sont construites et distribuées séparément.
 #
 # 🏗️ POURQUOI UN SEUL FICHIER pour deux OS (fusion du 2026-09-04 de
 #    `desktop-windows.yml` + `desktop-macos.yml`) : la publication de la Release a

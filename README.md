@@ -62,16 +62,15 @@ npx expo start --tunnel   # accessible depuis n'importe quel réseau
 ```
 Scanne le QR avec **Expo Go** ou saisis l'URL `exp://…`.
 
-## Publier (EAS) — nécessite un compte Expo
+## Construire (EAS) — nécessite un compte Expo
 
 ```bash
 eas login
-eas update --branch preview -m "message"        # OTA
 eas build --profile development -p ios           # app installable (icône + capteurs natifs)
 ```
 Profils dans `eas.json` ; projet lié via `extra.eas.projectId` (app.json).
-Le workflow `.github/workflows/eas-update.yml` publie via `eas update` à chaque push
-(ajouter le secret **`EXPO_TOKEN`** dans GitHub).
+Les mises à jour réseau sont désactivées : chaque nouvelle version doit être
+construite et distribuée via les magasins d'applications, après tests et validation.
 
 ## Structure
 
