@@ -87,6 +87,9 @@ private struct WatchMonitorView: View {
                         .font(.system(size: 38, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .accessibilityLabel(label("Batterie \(percent) pour cent", "Battery \(percent) percent", "البطارية \(percent) بالمئة"))
+                    ProgressView(value: Double(percent), total: 100)
+                        .tint(.yellow)
+                        .accessibilityLabel(label("Niveau de batterie", "Battery level", "مستوى البطارية"))
                     Text(stateLabel)
                         .font(.caption)
                 } else {
@@ -106,6 +109,13 @@ private struct WatchMonitorView: View {
                     Text("\(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: total, countStyle: .file))")
                         .font(.caption2)
                         .multilineTextAlignment(.center)
+                    let used = total - free
+                    let usedPercent = Int((Double(used) / Double(total) * 100).rounded())
+                    ProgressView(value: Double(used), total: Double(total))
+                        .tint(.yellow)
+                        .accessibilityLabel(label("Stockage utilisé", "Storage used", "التخزين المستخدم"))
+                    Text(label("\(usedPercent)% utilisé", "\(usedPercent)% used", "تم استخدام \(usedPercent)٪"))
+                        .font(.caption2)
                 } else {
                     Text(label("Mesure indisponible", "Measurement unavailable", "القياس غير متاح"))
                         .font(.caption2)

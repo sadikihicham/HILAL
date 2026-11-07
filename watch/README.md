@@ -5,7 +5,9 @@ avec WatchKit. Aucun compte, synchronisation, réseau ou accès à l’iPhone n�
 Une mesure absente s’affiche comme indisponible. Interface FR/EN/AR selon la langue
 de la montre.
 La version de watchOS et le stockage local sont également affichés quand le système
-les fournit. Sur simulateur, le stockage reflète l'hôte et ne valide pas la montre réelle.
+les fournit. Des jauges montrent le niveau de batterie et la part utilisée du
+stockage ; elles restent absentes si la mesure manque. Sur simulateur, le stockage
+reflète l'hôte et ne valide pas la montre réelle.
 
 ## Vérifier localement
 
