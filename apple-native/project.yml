@@ -1,0 +1,28 @@
+name: HILALAppleNative
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  HILALTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: '17.0'
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sadikihicham.hilal.tv
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: HILAL
+  HILALVision:
+    type: application
+    platform: visionOS
+    deploymentTarget: '2.0'
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sadikihicham.hilal.vision
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: HILAL
