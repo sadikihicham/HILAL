@@ -8,6 +8,7 @@ export type DeviceStatusInput = {
 
 export type DeviceStatus = {
   state: 'normal' | 'attention' | 'unavailable';
+  score: number | null;
   alerts: ('batteryLow' | 'storageLow')[];
   missing: ('battery' | 'storage' | 'ram' | 'brightness' | 'network' | 'batteryState')[];
 };
@@ -34,10 +35,19 @@ export function deviceStatus(input: DeviceStatusInput): DeviceStatus {
   if (input.brightness == null) missing.push('brightness');
   if (!input.networkAvailable) missing.push('network');
 
+  // Score limité aux deux mesures lisibles sur iOS et Android. Ne pas afficher
+  // de score quand l'une manque : le bureau utilise davantage de capteurs.
+  const score = validBattery && validStorage && battery!.charging !== null
+    ? Math.max(0, 100
+      - (!battery!.charging && battery!.level < 0.15 ? 25 : !battery!.charging && battery!.level < 0.3 ? 10 : 0)
+      - (storage!.free / storage!.total < 0.1 ? 25 : storage!.free / storage!.total < 0.2 ? 10 : 0))
+    : null;
+
   return {
     state: alerts.length ? 'attention'
       : (!validBattery || !validStorage || missing.includes('batteryState')) ? 'unavailable' : 'normal',
     alerts,
     missing,
+    score,
   };
 }

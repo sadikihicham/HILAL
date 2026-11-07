@@ -146,6 +146,7 @@ function Monitor() {
   async function onShare() {
     const L = (k: string) => t(k, lang);
     const lines = ['HILAL', `${L('healthTitle')}: ${statusLabel}`];
+    if (summary.score !== null) lines.push(`${L('mobileScore')}: ${summary.score}/100`);
     for (const alert of summary.alerts) lines.push(`• ${L(alert)}`);
     if (summary.missing.length) lines.push(`${L('unavailableMeasures')}: ${missingLabel}`);
     if (m.battery) {
@@ -187,6 +188,12 @@ function Monitor() {
 
         <View style={st.statusCard}>
           <Text style={[st.statusTitle, rtl && st.right]}>{t('healthTitle', lang)}</Text>
+          {summary.score !== null && (
+            <>
+              <Text style={[st.score, rtl && st.right]}>{summary.score}<Text style={st.scoreUnit}> / 100</Text></Text>
+              <Text style={[st.scoreCaption, rtl && st.right]}>{t('mobileScore', lang)}</Text>
+            </>
+          )}
           <Text style={[st.statusState, rtl && st.right, {
             color: summary.state === 'attention' ? theme.gold
               : summary.state === 'unavailable' ? theme.textMuted : theme.sealTxt,
@@ -286,6 +293,9 @@ function makeStyles(t: Theme) {
     subtitle: { color: t.textMuted, fontSize: 13, marginTop: 8, marginBottom: 26 },
     statusCard: { backgroundColor: t.card, borderColor: t.cardBorder, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 22 },
     statusTitle: { color: t.textSecondary, fontSize: 13, fontWeight: '600' },
+    score: { color: t.gold, fontSize: 38, fontWeight: '800', marginTop: 6 },
+    scoreUnit: { fontSize: 17, color: t.textSecondary },
+    scoreCaption: { color: t.textMuted, fontSize: 12, marginTop: 2 },
     statusState: { fontSize: 22, fontWeight: '800', marginTop: 5, marginBottom: 3 },
     statusDetail: { color: t.gold, fontSize: 14, marginTop: 6 },
     statusMissing: { color: t.textMuted, fontSize: 12, marginTop: 9, lineHeight: 18 },
