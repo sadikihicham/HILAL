@@ -1,0 +1,37 @@
+name: TV and Vision native builds
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apple-native-simulators:
+    name: tvOS and visionOS simulator builds
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: apple-native
+        run: |
+          xcodebuild -version
+          xcodegen generate
+      - name: Build HILAL TV without signing
+        working-directory: apple-native
+        run: |
+          xcodebuild -project HILALAppleNative.xcodeproj -scheme HILALTV \
+            -destination 'generic/platform=tvOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/hilal-apple-native-derived" \
+            CODE_SIGNING_ALLOWED=NO build
+      - name: Build HILAL Vision without signing
+        working-directory: apple-native
+        run: |
+          xcodebuild -project HILALAppleNative.xcodeproj -scheme HILALVision \
+            -destination 'generic/platform=visionOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/hilal-apple-native-derived" \
+            CODE_SIGNING_ALLOWED=NO build
