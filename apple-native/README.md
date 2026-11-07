@@ -7,6 +7,11 @@ montre la part utilisée du stockage lorsque la mesure est valide. Les valeurs
 indisponibles restent explicites. Aucune connexion à l’iPhone, au Mac ou à un
 serveur ; aucun accès réseau ajouté.
 
+Sous 10 % d'espace libre, un avertissement local s'affiche. Dans le simulateur,
+il désigne explicitement le stockage de l'ordinateur hôte. Le bouton Actualiser
+relit les mesures et affiche l'heure de cette lecture ; aucune surveillance en
+arrière-plan n'est promise.
+
 Les libellés FR/EN/AR suivent la langue de l’appareil. Le simulateur est identifié
 comme tel : ses chiffres de stockage, mémoire et cœurs reflètent l'hôte de
 simulation et ne prouvent pas les valeurs du matériel réel.

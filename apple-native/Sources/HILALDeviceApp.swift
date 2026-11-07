@@ -41,6 +41,7 @@ private struct DeviceSnapshot {
 private struct DeviceMonitorView: View {
     @State private var snapshot = DeviceSnapshot(osVersion: "—", storageFree: nil,
                                                  storageTotal: nil, memoryTotal: nil, logicalCores: nil)
+    @State private var lastChecked: Date?
 
     private var language: String {
         let code = Locale.current.language.languageCode?.identifier ?? "en"
@@ -75,15 +76,53 @@ private struct DeviceMonitorView: View {
         ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
     }
 
+    private var storageIsLow: Bool {
+        guard let free = snapshot.storageFree, let total = snapshot.storageTotal, total > 0 else {
+            return false
+        }
+        return Double(free) / Double(total) < 0.1
+    }
+
+    private var lowStorageMessage: String {
+        #if targetEnvironment(simulator)
+        label("Stockage hôte presque plein (simulateur).",
+              "Simulator host storage nearly full.",
+              "تخزين الجهاز المضيف للمحاكي شبه ممتلئ.")
+        #else
+        label("Stockage local presque plein.",
+              "Local storage is almost full.",
+              "مساحة التخزين المحلية ممتلئة تقريبًا.")
+        #endif
+    }
+
+    private func refresh() {
+        snapshot = .read()
+        lastChecked = .now
+    }
+
+    private var sectionSpacing: CGFloat {
+        #if os(tvOS)
+        16
+        #else
+        24
+        #endif
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: sectionSpacing) {
                 Text("HILAL")
                     .font(.largeTitle.bold())
                     .foregroundStyle(.yellow)
 
                 Text(deviceName)
                     .font(.title2)
+
+                if storageIsLow {
+                    Text(lowStorageMessage)
+                        .font(.headline)
+                        .foregroundStyle(.yellow)
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(label("Système", "System", "النظام"))
@@ -140,13 +179,20 @@ private struct DeviceMonitorView: View {
                     .foregroundStyle(.secondary)
                 #endif
 
-                Button(label("Actualiser", "Refresh", "تحديث")) {
-                    snapshot = .read()
+                HStack(spacing: 16) {
+                    Button(label("Actualiser", "Refresh", "تحديث")) {
+                        refresh()
+                    }
+                    if let lastChecked {
+                        Text("\(label("Mesuré à", "Checked at", "تم القياس في")) \(lastChecked.formatted(date: .omitted, time: .standard))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(maxWidth: 700, alignment: .leading)
             .padding(32)
         }
-        .task { snapshot = .read() }
+        .task { refresh() }
     }
 }
