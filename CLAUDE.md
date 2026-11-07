@@ -4,10 +4,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## ⚠️ Expo 56 — lire la doc versionnée d'abord
+## ⚠️ Expo 57 — lire la doc versionnée d'abord
 
-Le SDK est **pinné sur Expo 56** (`expo ~56.0.x`, React 19.2.3, React Native 0.85.3). Les API ont
-changé entre versions : **avant d'écrire du code**, consulter https://docs.expo.dev/versions/v56.0.0/.
+Le SDK est **pinné sur Expo 57** (`expo ^57.0.32`, React 19.2.3, React Native 0.86.3). Les API ont
+changé entre versions : **avant d'écrire du code**, consulter https://docs.expo.dev/versions/v57.0.0/.
 Ne pas présumer des signatures d'autres SDK (voir aussi `AGENTS.md`).
 
 ## Ce que c'est
@@ -56,18 +56,15 @@ de composants React Native (importer `App.tsx` tirerait RN et casserait). Tout c
 être extrait dans un module pur, puis ré-importé par `App.tsx`/un hook (cf. `fmtBytes`/`lowBatteryStep`/
 `tiltAngle`). Tests dans `tests/` (découverte `tests/**/*.test.ts`, cf. `vitest.config.ts`).
 
-**EAS / déploiement :**
+**EAS / construction :**
 ```bash
-eas update --branch preview -m "msg"                       # OTA (JS uniquement)
 eas build --profile development|preview|production -p ios|android
 ```
 Profils dans `eas.json` ; projet lié via `extra.eas.projectId` (`app.json`).
 
-⚠️ **CI** : `.github/workflows/eas-update.yml` publie `eas update --branch preview` **à chaque push
-sur `master`** (secret GitHub `EXPO_TOKEN` requis), gardé par les portes `tsc` + `npm test`. Donc **un push sur
-master = une OTA sur le canal preview** — en tenir compte avant de pousser. Le canal **`production`
-n'est mis à jour que manuellement** (`eas update --branch production`) : les pushes de routine ne
-touchent jamais les utilisateurs prod. Canaux déclarés par profil dans `eas.json`.
+⚠️ **Réseau** : `expo-updates` et la publication OTA sont retirés. Les binaires
+chargent uniquement le code embarqué. Les builds EAS restent possibles, mais
+aucun push GitHub ne publie de mise à jour sur les appareils.
 
 ## Architecture (le « big picture »)
 

@@ -5,8 +5,8 @@ name: CI
 # des toolchains et des `tsconfig` disjoints (`tsconfig.json` racine exclut
 # `desktop/`). Le job `gates` ne couvre donc QUE le mobile : sans les jobs
 # `gates-desktop*`, les ~1 500 lignes de `desktop/` ne seraient testées nulle part
-# avant un tag de release. Ne publie RIEN — l'OTA reste gérée exclusivement par
-# `eas-update.yml` sur push master.
+# avant un tag de release. Ne publie RIEN : les binaires mobiles restent hors
+# ligne et leur distribution demande un build et une validation séparés.
 #
 # ⚠️ `gates` est le "required status check" de la branch protection de master :
 # NE PAS le renommer sans mettre à jour la règle côté GitHub. Pour rendre les
