@@ -11,9 +11,9 @@ surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / R
 - **Mémoire (RAM)** — capacité totale.
 - **Réseau** — type (Wi-Fi / Cellulaire / …), connexion, adresse IP.
 - **Appareil** — modèle, système.
-- **État local** — alertes de batterie faible et d'espace libre, score 0–100 calculé
-  uniquement quand batterie, état de charge et stockage sont disponibles. Le score
-  mobile utilise ces deux indicateurs ; le score desktop en utilise davantage.
+- **État local** — statut normal, attention ou mesures indisponibles, avec alertes
+  explicites pour batterie faible et espace libre faible. Aucun score numérique
+  n'est déduit de ces seules mesures.
 - **Suivi** — historique récent de la batterie, partage du résumé, langues FR/EN/AR,
   mode clair/sombre et alerte locale de batterie faible.
 
