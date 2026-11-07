@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Pressable, RefreshControl, ScrollView, Share, StatusBar, StyleSheet, Switch, Text, useColorScheme, View,
+  Alert, Pressable, RefreshControl, ScrollView, Share, StatusBar, StyleSheet, Switch, Text, useColorScheme, View,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Battery from 'expo-battery';
 import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
 import { useTilt } from './src/useTilt';
 import { clampOffset, levelHapticStep, LEVEL_IN } from './src/tilt';
@@ -15,6 +16,7 @@ import { getTheme, Mode, Theme } from './src/theme';
 import { fmtBytes, pct, loadColor } from './src/format';
 import { lowBatteryStep } from './src/battery';
 import { deviceStatus } from './src/deviceStatus';
+import { formatStatusSummary } from './src/statusSummary';
 
 configureNotifications();
 
@@ -25,6 +27,8 @@ const BUBBLE_MAX = 46;
 
 const LANG_KEY = 'app.lang';
 const THEME_KEY = 'theme.mode';
+const VIEW_KEY = 'nav.view';
+type ViewId = 'overview' | 'system';
 
 type S = ReturnType<typeof makeStyles>;
 
@@ -85,6 +89,8 @@ function Monitor() {
   const [alertOn, setAlertOn] = useState(false);
   const [lang, setLang] = useState<Lang>('fr');
   const [mode, setMode] = useState<Mode>(system === 'light' ? 'light' : 'dark');
+  const [view, setView] = useState<ViewId>('overview');
+  const [copied, setCopied] = useState(false);
   const firedRef = useRef(false);
   const atLevelRef = useRef(true); // true au départ : pas de buzz à l'ouverture
   const tilt = useTilt();
@@ -97,10 +103,18 @@ function Monitor() {
     AsyncStorage.getItem(ALERT_KEY).then((v) => setAlertOn(v === '1'));
     AsyncStorage.getItem(LANG_KEY).then((v) => { if (v === 'fr' || v === 'en' || v === 'ar') setLang(v); });
     AsyncStorage.getItem(THEME_KEY).then((v) => { if (v === 'light' || v === 'dark') setMode(v); });
+    AsyncStorage.getItem(VIEW_KEY).then((v) => { if (v === 'overview' || v === 'system') setView(v); });
   }, []);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(timer);
+  }, [copied]);
 
   async function changeLang(l: Lang) { setLang(l); await AsyncStorage.setItem(LANG_KEY, l); }
   async function toggleTheme() { const n: Mode = mode === 'dark' ? 'light' : 'dark'; setMode(n); await AsyncStorage.setItem(THEME_KEY, n); }
+  async function changeView(next: ViewId) { setView(next); await AsyncStorage.setItem(VIEW_KEY, next); }
 
   async function toggleAlert(v: boolean) {
     setAlertOn(v);
@@ -143,21 +157,18 @@ function Monitor() {
     : summary.state === 'attention' ? 'statusAttention' : 'statusUnavailable', lang);
   const missingLabel = summary.missing.map((key) => t(key, lang)).join(' · ');
 
+  const statusText = formatStatusSummary({
+    metrics: m, status: summary, lang, statusLabel, missingLabel,
+    batteryStateLabel: m.battery ? batteryState(m.battery.state, lang) : '', networkLabel: netLabel,
+  });
+
   async function onShare() {
-    const L = (k: string) => t(k, lang);
-    const lines = ['HILAL', `${L('healthTitle')}: ${statusLabel}`];
-    for (const alert of summary.alerts) lines.push(`• ${L(alert)}`);
-    if (summary.missing.length) lines.push(`${L('unavailableMeasures')}: ${missingLabel}`);
-    if (m.battery) {
-      const state = batteryState(m.battery.state, lang);
-      lines.push(`${L('battery')}: ${pct(m.battery.level)}${state ? ` (${state})` : ''}`);
-    }
-    if (m.storage) lines.push(`${L('storage')}: ${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`, `${L('free')}: ${fmtBytes(m.storage.free)}`);
-    if (m.ramTotal != null) lines.push(`${L('ram')}: ${fmtBytes(m.ramTotal)}`);
-    if (m.brightness != null) lines.push(`${L('brightness')}: ${pct(m.brightness)}`);
-    if (m.network) lines.push(`${L('network')}: ${netLabel}${m.network.ip ? ` · ${m.network.ip}` : ''}`);
-    lines.push(`${L('device')}: ${m.device.model}`, `${L('system')}: ${m.device.os}`);
-    try { await Share.share({ message: lines.join('\n') }); } catch { /* annulé */ }
+    try { await Share.share({ message: statusText }); } catch { /* annulé */ }
+  }
+
+  async function onCopy() {
+    try { await Clipboard.setStringAsync(statusText); setCopied(true); }
+    catch { Alert.alert(t('copyFailed', lang)); }
   }
 
   return (
@@ -184,6 +195,19 @@ function Monitor() {
           </View>
         </View>
         <Text style={[st.subtitle, rtl && st.right]}>{t('subtitle', lang)}</Text>
+
+        <View style={[st.nav, rtl && st.rev]}>
+          {(['overview', 'system'] as const).map((id) => (
+            <Pressable key={id} accessibilityRole="tab" accessibilityState={{ selected: view === id }}
+              onPress={() => changeView(id)} style={[st.navBtn, view === id && st.navSelected]}>
+              <Text style={[st.navText, view === id && st.navTextSelected]}>
+                {t(id === 'overview' ? 'overview' : 'system', lang)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {view === 'overview' ? <>
 
         <View style={st.statusCard}>
           <Text style={[st.statusTitle, rtl && st.right]}>{t('healthTitle', lang)}</Text>
@@ -222,16 +246,6 @@ function Monitor() {
             frac={storageFrac} color={loadColor(storageFrac)} rtl={rtl} st={st} />
         )}
 
-        <View style={st.card}>
-          {m.storage && <InfoRow label={t('free', lang)} value={fmtBytes(m.storage.free)} rtl={rtl} st={st} />}
-          {m.ramTotal != null && <InfoRow label={t('ram', lang)} value={fmtBytes(m.ramTotal)} rtl={rtl} st={st} />}
-          {m.brightness != null && <InfoRow label={t('brightness', lang)} value={pct(m.brightness)} rtl={rtl} st={st} />}
-          {m.network && <InfoRow label={t('network', lang)} value={netLabel} rtl={rtl} st={st} />}
-          {m.network?.ip && <InfoRow label={t('ip', lang)} value={m.network.ip} rtl={rtl} st={st} />}
-          <InfoRow label={t('device', lang)} value={m.device.model} rtl={rtl} st={st} />
-          <InfoRow label={t('system', lang)} value={m.device.os} rtl={rtl} st={st} />
-        </View>
-
         <View style={st.levelCard}>
           <Text style={st.levelTitle}>📐 {t('level', lang)}</Text>
           <View style={st.bubbleOuter}>
@@ -256,9 +270,31 @@ function Monitor() {
           </View>
           <Switch value={alertOn} onValueChange={toggleAlert} trackColor={{ true: theme.gold, false: theme.alertTrackOff }} thumbColor="#fff" />
         </View>
+        </> : <>
+          <Text style={[st.sectionTitle, rtl && st.right]}>{t('system', lang)}</Text>
+          <View style={st.card}>
+            <InfoRow label={t('device', lang)} value={m.device.model} rtl={rtl} st={st} />
+            <InfoRow label={t('system', lang)} value={m.device.os} rtl={rtl} st={st} />
+            {m.battery && <InfoRow label={t('battery', lang)} value={pct(m.battery.level)} rtl={rtl} st={st} />}
+            {m.storage && <InfoRow label={t('storage', lang)} value={`${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`} rtl={rtl} st={st} />}
+            {m.storage && <InfoRow label={t('free', lang)} value={fmtBytes(m.storage.free)} rtl={rtl} st={st} />}
+            {m.ramTotal != null && <InfoRow label={t('ram', lang)} value={fmtBytes(m.ramTotal)} rtl={rtl} st={st} />}
+            {m.brightness != null && <InfoRow label={t('brightness', lang)} value={pct(m.brightness)} rtl={rtl} st={st} />}
+            {m.network && <InfoRow label={t('network', lang)} value={netLabel} rtl={rtl} st={st} />}
+            {m.network?.ip && <InfoRow label={t('ip', lang)} value={m.network.ip} rtl={rtl} st={st} />}
+          </View>
+          {summary.missing.length > 0 && (
+            <Text style={[st.statusMissing, rtl && st.right]}>
+              {t('unavailableMeasures', lang)} : {missingLabel}
+            </Text>
+          )}
+        </>}
 
         <Pressable onPress={onShare} style={st.shareBtn}>
           <Text style={st.shareTxt}>{t('share', lang)}</Text>
+        </Pressable>
+        <Pressable onPress={onCopy} style={st.copyBtn} accessibilityRole="button">
+          <Text style={st.shareTxt}>{t(copied ? 'copied' : 'copyStatus', lang)}</Text>
         </Pressable>
 
         <Text style={st.footer}>{t('footer', lang)} هلال</Text>
@@ -283,7 +319,13 @@ function makeStyles(t: Theme) {
     langTxtSel: { color: t.textPrimary },
     seal: { backgroundColor: t.sealBg, borderColor: t.sealBorder, borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
     sealTxt: { color: t.sealTxt, fontSize: 12, fontWeight: '700' },
-    subtitle: { color: t.textMuted, fontSize: 13, marginTop: 8, marginBottom: 26 },
+    subtitle: { color: t.textMuted, fontSize: 13, marginTop: 8, marginBottom: 18 },
+    nav: { flexDirection: 'row', backgroundColor: t.chipBg, borderRadius: 12, padding: 4, marginBottom: 22 },
+    navBtn: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 9 },
+    navSelected: { backgroundColor: t.chipSel },
+    navText: { color: t.textSecondary, fontSize: 14, fontWeight: '700' },
+    navTextSelected: { color: t.gold },
+    sectionTitle: { color: t.textPrimary, fontSize: 21, fontWeight: '700', marginBottom: 12 },
     statusCard: { backgroundColor: t.card, borderColor: t.cardBorder, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 22 },
     statusTitle: { color: t.textSecondary, fontSize: 13, fontWeight: '600' },
     statusState: { fontSize: 22, fontWeight: '800', marginTop: 5, marginBottom: 3 },
@@ -315,6 +357,7 @@ function makeStyles(t: Theme) {
     bubble: { width: 26, height: 26, borderRadius: 13 },
     levelVal: { color: t.textMuted, fontSize: 14, marginTop: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
     shareBtn: { marginTop: 22, alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 26, borderRadius: 24, borderWidth: 1, borderColor: t.gold, backgroundColor: t.chipSel },
+    copyBtn: { marginTop: 12, alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 26, borderRadius: 24, borderWidth: 1, borderColor: t.cardBorder, backgroundColor: t.card },
     shareTxt: { color: t.gold, fontSize: 15, fontWeight: '700' },
     footer: { color: t.textFooter, fontSize: 11, marginTop: 30, textAlign: 'center', lineHeight: 16 },
   });

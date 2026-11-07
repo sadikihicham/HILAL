@@ -14,8 +14,9 @@ surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / R
 - **État local** — statut normal, attention ou mesures indisponibles, avec alertes
   explicites pour batterie faible et espace libre faible. Aucun score numérique
   n'est déduit de ces seules mesures.
-- **Suivi** — historique récent de la batterie, partage du résumé, langues FR/EN/AR,
-  mode clair/sombre et alerte locale de batterie faible.
+- **Suivi** — historique récent de la batterie, vues Vue d’ensemble / Système,
+  partage ou copie locale du même résumé, langues FR/EN/AR, mode clair/sombre et
+  alerte locale de batterie faible.
 
 > ⚠️ Contrainte mobile : contrairement au desktop, iOS/Android **sandboxent** les apps —
 > pas d'accès au **CPU**, à la **liste des process**, aux **ventilateurs** ni au **kill** d'autres apps (impossible
@@ -26,6 +27,15 @@ surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / R
 > 👉 Tout cela EST possible sur ordinateur : voir **[`desktop/`](desktop/README.md)** —
 > températures, ventilateurs, liste des processus avec énergie mesurée, arrêt et arrêt
 > forcé, icône de barre d'état.
+
+## Correspondance avec HILAL Desktop 1.2.0
+
+| Desktop | Mobile |
+|---|---|
+| Vue d'ensemble : score calculé sur CPU, RAM, disque, swap et batterie | État local et alertes batterie/stockage, sans score numérique trompeur |
+| Système : matériel, mémoire, volumes et réseau | Vue Système : modèle, OS, RAM totale, stockage, batterie, luminosité et connexion disponibles |
+| Réglages : langue, apparence et copier l'état | FR/EN/AR, clair/sombre, partage et copie du même résumé local |
+| Cœurs, processus, thermique, ventilateurs, débits et icône de barre d'état | Non exposés par les API mobiles utilisées ; aucune valeur simulée |
 
 ## Lancer (Expo Go)
 
@@ -52,6 +62,7 @@ Le workflow `.github/workflows/eas-update.yml` publie via `eas update` à chaque
 ```
 App.tsx                  # écran moniteur (jauges + infos)
 src/useDeviceMetrics.ts  # échantillonnage capteurs (batterie/stockage/RAM/réseau/appareil)
+src/statusSummary.ts     # texte unique utilisé pour partager et copier l’état
 ```
 
 100% local — هلال.

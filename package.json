@@ -8,6 +8,7 @@
     "expo": "~56.0.12",
     "expo-battery": "~56.0.4",
     "expo-brightness": "~56.0.5",
+    "expo-clipboard": "~56.0.4",
     "expo-device": "~56.0.4",
     "expo-file-system": "~56.0.8",
     "expo-haptics": "~56.0.3",
