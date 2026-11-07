@@ -10,19 +10,25 @@ targets:
     deploymentTarget: '17.0'
     sources:
       - path: Sources
+    info:
+      path: TV/Info.plist
+      properties:
+        CFBundleDisplayName: HILAL
+        CFBundleLocalizations: [en, fr, ar]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sadikihicham.hilal.tv
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: HILAL
   HILALVision:
     type: application
     platform: visionOS
     deploymentTarget: '2.0'
     sources:
       - path: Sources
+    info:
+      path: Vision/Info.plist
+      properties:
+        CFBundleDisplayName: HILAL
+        CFBundleLocalizations: [en, fr, ar]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sadikihicham.hilal.vision
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: HILAL
