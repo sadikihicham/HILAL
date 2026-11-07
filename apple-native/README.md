@@ -2,7 +2,8 @@
 
 Deux applications SwiftUI natives, chacune surveillant **son propre appareil**.
 Elles affichent la version du système, le stockage local, la mémoire physique
-totale et le nombre de cœurs logiques quand Foundation les fournit. Les valeurs
+totale et le nombre de cœurs logiques quand Foundation les fournit. Une jauge
+montre la part utilisée du stockage lorsque la mesure est valide. Les valeurs
 indisponibles restent explicites. Aucune connexion à l’iPhone, au Mac ou à un
 serveur ; aucun accès réseau ajouté.
 

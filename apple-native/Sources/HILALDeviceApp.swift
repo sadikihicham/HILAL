@@ -100,6 +100,13 @@ private struct DeviceMonitorView: View {
                             .font(.title3.weight(.semibold))
                         Text(label("libre / total", "free / total", "متاح / إجمالي"))
                             .font(.caption)
+                        let used = total - free
+                        let usedPercent = Int((Double(used) / Double(total) * 100).rounded())
+                        ProgressView(value: Double(used), total: Double(total))
+                            .tint(.yellow)
+                            .accessibilityLabel(label("Stockage utilisé", "Storage used", "التخزين المستخدم"))
+                        Text(label("\(usedPercent)% utilisé", "\(usedPercent)% used", "تم استخدام \(usedPercent)٪"))
+                            .font(.caption)
                     } else {
                         Text(label("Mesure indisponible", "Measurement unavailable", "القياس غير متاح"))
                     }
