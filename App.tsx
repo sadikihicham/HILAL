@@ -10,15 +10,13 @@ import * as Clipboard from 'expo-clipboard';
 import { useDeviceMetrics } from './src/useDeviceMetrics';
 import { useTilt } from './src/useTilt';
 import { clampOffset, levelHapticStep, LEVEL_IN } from './src/tilt';
-import { configureNotifications, notifyLowBattery, requestNotificationPermission } from './src/notifications';
+import { notifyLowBattery, requestNotificationPermission } from './src/notifications';
 import { Lang, LANGS, isRTL, t } from './src/i18n';
 import { getTheme, Mode, Theme } from './src/theme';
 import { fmtBytes, pct, loadColor } from './src/format';
 import { lowBatteryStep } from './src/battery';
 import { deviceStatus } from './src/deviceStatus';
 import { formatStatusSummary } from './src/statusSummary';
-
-configureNotifications();
 
 const ALERT_KEY = 'alert.lowbattery';
 // Débattement maximal de la bulle du niveau, en points, depuis le centre du
