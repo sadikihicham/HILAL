@@ -7,6 +7,7 @@ export const isRTL = (l: Lang) => l === 'ar';
 const S: Record<Lang, Record<string, string>> = {
   fr: {
     subtitle: 'Moniteur d’appareil · tirez pour rafraîchir',
+    overview: 'Vue d’ensemble', copyStatus: 'Copier l’état', copied: 'État copié', copyFailed: 'Copie impossible',
     battery: 'Batterie', storage: 'Stockage', free: 'Espace libre', ram: 'Mémoire (RAM)',
     brightness: 'Luminosité', network: 'Réseau', ip: 'Adresse IP', device: 'Appareil', system: 'Système',
     level: 'Niveau', levelOk: '✓ à niveau', tilt: 'inclinaison', share: '📤 Partager l’état',
@@ -22,6 +23,7 @@ const S: Record<Lang, Record<string, string>> = {
   },
   en: {
     subtitle: 'Device monitor · pull to refresh',
+    overview: 'Overview', copyStatus: 'Copy status', copied: 'Status copied', copyFailed: 'Could not copy status',
     battery: 'Battery', storage: 'Storage', free: 'Free space', ram: 'Memory (RAM)',
     brightness: 'Brightness', network: 'Network', ip: 'IP address', device: 'Device', system: 'System',
     level: 'Level', levelOk: '✓ level', tilt: 'tilt', share: '📤 Share status',
@@ -37,6 +39,7 @@ const S: Record<Lang, Record<string, string>> = {
   },
   ar: {
     subtitle: 'مراقب الجهاز · اسحب للتحديث',
+    overview: 'نظرة عامة', copyStatus: 'نسخ الحالة', copied: 'تم نسخ الحالة', copyFailed: 'تعذر نسخ الحالة',
     battery: 'البطارية', storage: 'التخزين', free: 'المساحة الحرة', ram: 'الذاكرة (RAM)',
     brightness: 'السطوع', network: 'الشبكة', ip: 'عنوان IP', device: 'الجهاز', system: 'النظام',
     level: 'الميزان', levelOk: '✓ مستوٍ', tilt: 'الميل', share: '📤 مشاركة الحالة',
