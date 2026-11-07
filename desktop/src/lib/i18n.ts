@@ -42,7 +42,7 @@ const S: Record<Lang, Record<string, string>> = {
 
     // Confidentialité
     privacy: 'Confidentialité', outbound0: '0 REQUÊTE',
-    privacyOk: 'Protégé · lecture locale seule', privacyDetail: 'Aucun réseau sortant, aucune télémétrie',
+    privacyOk: 'Mesures locales · arrêt sur confirmation', privacyDetail: 'Aucun réseau sortant, aucune télémétrie',
     copy: 'Copier l’état', copied: 'Copié', refresh: 'Actualiser',
 
     // Volumes / cœurs
@@ -131,7 +131,7 @@ const S: Record<Lang, Record<string, string>> = {
     network: 'Network', down: 'Download', up: 'Upload',
 
     privacy: 'Privacy', outbound0: '0 REQUESTS',
-    privacyOk: 'Protected · local read only', privacyDetail: 'No outbound network, no telemetry',
+    privacyOk: 'Local metrics · confirm process stop', privacyDetail: 'No outbound network, no telemetry',
     copy: 'Copy status', copied: 'Copied', refresh: 'Refresh',
 
     volumes: 'Volumes', volumesTracked: 'volumes detected', usedPct: 'Used %',
@@ -213,7 +213,7 @@ const S: Record<Lang, Record<string, string>> = {
     network: 'الشبكة', down: 'التنزيل', up: 'الرفع',
 
     privacy: 'الخصوصية', outbound0: '٠ طلب',
-    privacyOk: 'محمي · قراءة محلية فقط', privacyDetail: 'لا شبكة صادرة، لا تتبّع',
+    privacyOk: 'قياسات محلية · إيقاف العمليات بعد تأكيد', privacyDetail: 'لا شبكة صادرة، لا تتبّع',
     copy: 'نسخ الحالة', copied: 'تم النسخ', refresh: 'تحديث',
 
     volumes: 'الأقراص', volumesTracked: 'أقراص مكتشفة', usedPct: '٪ مستخدم',
