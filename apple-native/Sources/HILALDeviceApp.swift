@@ -14,10 +14,15 @@ private struct DeviceSnapshot {
     let osVersion: String
     let storageFree: Int64?
     let storageTotal: Int64?
+    let memoryTotal: Int64?
+    let logicalCores: Int?
 
     static func read() -> DeviceSnapshot {
-        let version = ProcessInfo.processInfo.operatingSystemVersion
+        let process = ProcessInfo.processInfo
+        let version = process.operatingSystemVersion
         let osVersion = "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+        let memory = Int64(exactly: process.physicalMemory).flatMap { $0 > 0 ? $0 : nil }
+        let cores = process.processorCount > 0 ? process.processorCount : nil
         let url = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
         let values = try? url.resourceValues(forKeys: [
             .volumeAvailableCapacityKey, .volumeTotalCapacityKey,
@@ -25,14 +30,17 @@ private struct DeviceSnapshot {
         let free = values?.volumeAvailableCapacity.map(Int64.init)
         let total = values?.volumeTotalCapacity.map(Int64.init)
         if let free, let total, total > 0, free >= 0, free <= total {
-            return DeviceSnapshot(osVersion: osVersion, storageFree: free, storageTotal: total)
+            return DeviceSnapshot(osVersion: osVersion, storageFree: free,
+                                  storageTotal: total, memoryTotal: memory, logicalCores: cores)
         }
-        return DeviceSnapshot(osVersion: osVersion, storageFree: nil, storageTotal: nil)
+        return DeviceSnapshot(osVersion: osVersion, storageFree: nil,
+                              storageTotal: nil, memoryTotal: memory, logicalCores: cores)
     }
 }
 
 private struct DeviceMonitorView: View {
-    @State private var snapshot = DeviceSnapshot(osVersion: "—", storageFree: nil, storageTotal: nil)
+    @State private var snapshot = DeviceSnapshot(osVersion: "—", storageFree: nil,
+                                                 storageTotal: nil, memoryTotal: nil, logicalCores: nil)
 
     private var language: String {
         let code = Locale.current.language.languageCode?.identifier ?? "en"
@@ -92,6 +100,28 @@ private struct DeviceMonitorView: View {
                             .font(.title3.weight(.semibold))
                         Text(label("libre / total", "free / total", "متاح / إجمالي"))
                             .font(.caption)
+                    } else {
+                        Text(label("Mesure indisponible", "Measurement unavailable", "القياس غير متاح"))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(label("Mémoire physique", "Physical memory", "الذاكرة الفعلية"))
+                        .foregroundStyle(.secondary)
+                    if let memory = snapshot.memoryTotal {
+                        Text(formattedBytes(memory))
+                            .font(.title3.weight(.semibold))
+                    } else {
+                        Text(label("Mesure indisponible", "Measurement unavailable", "القياس غير متاح"))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(label("Cœurs logiques", "Logical cores", "الأنوية المنطقية"))
+                        .foregroundStyle(.secondary)
+                    if let cores = snapshot.logicalCores {
+                        Text("\(cores)")
+                            .font(.title3.weight(.semibold))
                     } else {
                         Text(label("Mesure indisponible", "Measurement unavailable", "القياس غير متاح"))
                     }

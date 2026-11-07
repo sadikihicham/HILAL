@@ -1,12 +1,14 @@
 # HILAL sur Apple TV et Vision Pro
 
 Deux applications SwiftUI natives, chacune surveillant **son propre appareil**.
-Elles affichent la version du système et la capacité du volume local quand
-Foundation la fournit. Les valeurs indisponibles restent explicites. Aucune
-connexion à l’iPhone, au Mac ou à un serveur ; aucun accès réseau ajouté.
+Elles affichent la version du système, le stockage local, la mémoire physique
+totale et le nombre de cœurs logiques quand Foundation les fournit. Les valeurs
+indisponibles restent explicites. Aucune connexion à l’iPhone, au Mac ou à un
+serveur ; aucun accès réseau ajouté.
 
 Les libellés FR/EN/AR suivent la langue de l’appareil. Le simulateur est identifié
-comme tel : ses chiffres de stockage ne prouvent pas ceux du matériel réel.
+comme tel : ses chiffres de stockage, mémoire et cœurs reflètent l'hôte de
+simulation et ne prouvent pas les valeurs du matériel réel.
 
 ```bash
 cd apple-native
