@@ -37,6 +37,22 @@ surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / R
 | Réglages : langue, apparence et copier l'état | FR/EN/AR, clair/sombre, partage et copie du même résumé local |
 | Cœurs, processus, thermique, ventilateurs, débits et icône de barre d'état | Non exposés par les API mobiles utilisées ; aucune valeur simulée |
 
+## Appareils Apple
+
+Chaque application HILAL lit uniquement **son propre appareil**, sans synchronisation
+avec les autres ni réseau sortant. L’interface Expo adapte sa largeur à l’iPhone et
+à l’iPad, accepte portrait/paysage et indique quand l’accéléromètre manque.
+
+| Appareil | État dans ce dépôt |
+|---|---|
+| iPhone et iPad | App Expo ; mise en page étroite ou à deux colonnes selon la fenêtre |
+| Mac | App Desktop Tauri 1.2.0 distincte |
+| Vision Pro | App iPad compatible potentielle, **pas encore testée ni publiée** pour visionOS |
+| Apple Watch et Apple TV | Applications natives spécifiques à créer et tester ; aucun build dans ce dépôt |
+
+Le suivi des cibles Vision, Watch et TV est dans l’issue #26. Aucun écran ne
+présente une valeur de capteur absente comme si elle avait été mesurée.
+
 ## Lancer (Expo Go)
 
 ```bash
