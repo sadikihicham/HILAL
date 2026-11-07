@@ -1,0 +1,27 @@
+name: Watch native build
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch-simulator:
+    name: watchOS simulator build
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build HILAL Watch without signing
+        working-directory: watch
+        run: |
+          xcodebuild -version
+          xcodegen generate
+          xcodebuild -project HILALWatch.xcodeproj -scheme HILALWatch \
+            -destination 'generic/platform=watchOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/hilal-watch-derived" \
+            CODE_SIGNING_ALLOWED=NO build
