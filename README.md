@@ -11,9 +11,14 @@ surveiller son matériel, **100% local, aucun accès réseau sortant**. Expo / R
 - **Mémoire (RAM)** — capacité totale.
 - **Réseau** — type (Wi-Fi / Cellulaire / …), connexion, adresse IP.
 - **Appareil** — modèle, système.
+- **État local** — statut normal, attention ou mesures indisponibles, avec alertes
+  explicites pour batterie faible et espace libre faible. Aucun score numérique
+  n'est déduit de ces seules mesures.
+- **Suivi** — historique récent de la batterie, partage du résumé, langues FR/EN/AR,
+  mode clair/sombre et alerte locale de batterie faible.
 
 > ⚠️ Contrainte mobile : contrairement au desktop, iOS/Android **sandboxent** les apps —
-> pas d'accès au **CPU**, à la **liste des process** ni au **kill** d'autres apps (impossible
+> pas d'accès au **CPU**, à la **liste des process**, aux **ventilateurs** ni au **kill** d'autres apps (impossible
 > par les API mobiles). HILAL surveille donc **l'appareil lui-même**, en lecture seule : aucun
 > réglage modifié, aucun process tué, rien d'écrit hors de ses propres préférences. Seule
 > sortie : un **retour haptique** quand l'appareil se cale à plat.

@@ -14,6 +14,7 @@ import { Lang, LANGS, isRTL, t } from './src/i18n';
 import { getTheme, Mode, Theme } from './src/theme';
 import { fmtBytes, pct, loadColor } from './src/format';
 import { lowBatteryStep } from './src/battery';
+import { deviceStatus } from './src/deviceStatus';
 
 configureNotifications();
 
@@ -109,7 +110,7 @@ function Monitor() {
 
   useEffect(() => {
     const b = m.battery;
-    if (!b) return;
+    if (!b || b.state === Battery.BatteryState.UNKNOWN) return;
     const charging = b.state === Battery.BatteryState.CHARGING || b.state === Battery.BatteryState.FULL;
     const { fired, notify } = lowBatteryStep(firedRef.current, { level: b.level, charging, alertOn });
     firedRef.current = fired;
@@ -127,11 +128,30 @@ function Monitor() {
   const usedStorage = m.storage ? m.storage.total - m.storage.free : 0;
   const storageFrac = m.storage && m.storage.total > 0 ? usedStorage / m.storage.total : 0;
   const netLabel = m.network ? `${t(m.network.type, lang)}${m.network.isConnected ? '' : ` (${t('disconnected', lang)})`}` : '';
+  const summary = deviceStatus({
+    battery: m.battery ? {
+      level: m.battery.level,
+      charging: m.battery.state === Battery.BatteryState.UNKNOWN ? null
+        : m.battery.state === Battery.BatteryState.CHARGING || m.battery.state === Battery.BatteryState.FULL,
+    } : null,
+    storage: m.storage,
+    ramTotal: m.ramTotal,
+    brightness: m.brightness,
+    networkAvailable: m.network != null,
+  });
+  const statusLabel = t(summary.state === 'normal' ? 'statusNormal'
+    : summary.state === 'attention' ? 'statusAttention' : 'statusUnavailable', lang);
+  const missingLabel = summary.missing.map((key) => t(key, lang)).join(' · ');
 
   async function onShare() {
     const L = (k: string) => t(k, lang);
-    const lines = ['HILAL'];
-    if (m.battery) lines.push(`${L('battery')}: ${pct(m.battery.level)} (${batteryState(m.battery.state, lang)})`);
+    const lines = ['HILAL', `${L('healthTitle')}: ${statusLabel}`];
+    for (const alert of summary.alerts) lines.push(`• ${L(alert)}`);
+    if (summary.missing.length) lines.push(`${L('unavailableMeasures')}: ${missingLabel}`);
+    if (m.battery) {
+      const state = batteryState(m.battery.state, lang);
+      lines.push(`${L('battery')}: ${pct(m.battery.level)}${state ? ` (${state})` : ''}`);
+    }
     if (m.storage) lines.push(`${L('storage')}: ${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`, `${L('free')}: ${fmtBytes(m.storage.free)}`);
     if (m.ramTotal != null) lines.push(`${L('ram')}: ${fmtBytes(m.ramTotal)}`);
     if (m.brightness != null) lines.push(`${L('brightness')}: ${pct(m.brightness)}`);
@@ -165,6 +185,22 @@ function Monitor() {
         </View>
         <Text style={[st.subtitle, rtl && st.right]}>{t('subtitle', lang)}</Text>
 
+        <View style={st.statusCard}>
+          <Text style={[st.statusTitle, rtl && st.right]}>{t('healthTitle', lang)}</Text>
+          <Text style={[st.statusState, rtl && st.right, {
+            color: summary.state === 'attention' ? theme.gold
+              : summary.state === 'unavailable' ? theme.textMuted : theme.sealTxt,
+          }]}>{statusLabel}</Text>
+          {summary.alerts.map((alert) => (
+            <Text key={alert} style={[st.statusDetail, rtl && st.right]}>• {t(alert, lang)}</Text>
+          ))}
+          {summary.missing.length > 0 && (
+            <Text style={[st.statusMissing, rtl && st.right]}>
+              {t('unavailableMeasures', lang)} : {missingLabel}
+            </Text>
+          )}
+        </View>
+
         {m.battery && (
           <MetricRow icon="🔋" label={t('battery', lang)}
             value={`${pct(m.battery.level)}${m.battery.lowPower ? ` · ${t('eco', lang)}` : ''}`}
@@ -174,7 +210,10 @@ function Monitor() {
           <Text style={[st.batteryState, rtl && st.right]}>{batteryState(m.battery.state, lang)}</Text>
         )}
         {m.batteryHistory.length > 1 && (
-          <Sparkline values={m.batteryHistory} color={loadColor(m.battery?.level ?? 1, true)} st={st} />
+          <View>
+            <Text style={[st.historyTitle, rtl && st.right]}>{t('batteryHistory', lang)}</Text>
+            <Sparkline values={m.batteryHistory} color={loadColor(m.battery?.level ?? 1, true)} st={st} />
+          </View>
         )}
 
         {m.storage && (
@@ -245,6 +284,12 @@ function makeStyles(t: Theme) {
     seal: { backgroundColor: t.sealBg, borderColor: t.sealBorder, borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
     sealTxt: { color: t.sealTxt, fontSize: 12, fontWeight: '700' },
     subtitle: { color: t.textMuted, fontSize: 13, marginTop: 8, marginBottom: 26 },
+    statusCard: { backgroundColor: t.card, borderColor: t.cardBorder, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 22 },
+    statusTitle: { color: t.textSecondary, fontSize: 13, fontWeight: '600' },
+    statusState: { fontSize: 22, fontWeight: '800', marginTop: 5, marginBottom: 3 },
+    statusDetail: { color: t.gold, fontSize: 14, marginTop: 6 },
+    statusMissing: { color: t.textMuted, fontSize: 12, marginTop: 9, lineHeight: 18 },
+    historyTitle: { color: t.textSecondary, fontSize: 12, fontWeight: '600', marginBottom: 6 },
     right: { textAlign: 'right' },
     rev: { flexDirection: 'row-reverse' },
     metric: { marginBottom: 18 },
