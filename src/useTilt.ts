@@ -7,23 +7,42 @@ import { smooth, tiltAngle } from './tilt';
 /// gravité (pour la bulle), `angle` = inclinaison par rapport à l'horizontale
 /// (0° = à plat). Valeurs lissées. En pause hors premier plan.
 export function useTilt() {
-  const [tilt, setTilt] = useState({ x: 0, y: 0, angle: 0 });
+  const [tilt, setTilt] = useState({ x: 0, y: 0, angle: 0, available: false });
 
   useEffect(() => {
     const handler = ({ x, y, z }: { x: number; y: number; z: number }) => {
+      if (![x, y, z].every(Number.isFinite)) return;
       const angle = tiltAngle(z);
-      setTilt((p) => ({ x: smooth(p.x, x), y: smooth(p.y, y), angle: smooth(p.angle, angle) }));
+      setTilt((p) => ({ x: smooth(p.x, x), y: smooth(p.y, y), angle: smooth(p.angle, angle), available: true }));
     };
 
-    Accelerometer.setUpdateInterval(80);
-    let sub = Accelerometer.addListener(handler);
+    let mounted = true;
+    let foreground = true;
+    let sub: ReturnType<typeof Accelerometer.addListener> | null = null;
+    const start = async () => {
+      try {
+        if (!await Accelerometer.isAvailableAsync()) {
+          if (mounted) setTilt((p) => ({ ...p, available: false }));
+          return;
+        }
+        if (!mounted || !foreground || sub) return;
+        Accelerometer.setUpdateInterval(80);
+        sub = Accelerometer.addListener(handler);
+      } catch {
+        if (mounted) setTilt((p) => ({ ...p, available: false }));
+      }
+    };
+    void start();
 
     const appSub = AppState.addEventListener('change', (s) => {
-      sub.remove();
-      if (s === 'active') sub = Accelerometer.addListener(handler);
+      foreground = s === 'active';
+      sub?.remove();
+      sub = null;
+      if (!foreground) setTilt((p) => ({ ...p, available: false }));
+      if (foreground) void start();
     });
 
-    return () => { sub.remove(); appSub.remove(); };
+    return () => { mounted = false; sub?.remove(); appSub.remove(); };
   }, []);
 
   return tilt;

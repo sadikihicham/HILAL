@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Pressable, RefreshControl, ScrollView, Share, StatusBar, StyleSheet, Switch, Text, useColorScheme, View,
+  Alert, Pressable, RefreshControl, ScrollView, Share, StatusBar, StyleSheet, Switch, Text, useColorScheme, useWindowDimensions, View,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -85,6 +85,9 @@ function Monitor() {
   const { metrics: m, refresh } = useDeviceMetrics(3000);
   const insets = useSafeAreaInsets();
   const system = useColorScheme();
+  const { width, fontScale } = useWindowDimensions();
+  const wide = width >= 760 && fontScale < 1.4;
+  const compactHeader = width < 480 || fontScale >= 1.4;
   const [refreshing, setRefreshing] = useState(false);
   const [alertOn, setAlertOn] = useState(false);
   const [lang, setLang] = useState<Lang>('fr');
@@ -133,10 +136,11 @@ function Monitor() {
 
   // Retour haptique local quand l'appareil se cale « à niveau » (hystérésis).
   useEffect(() => {
+    if (!tilt.available) return;
     const { atLevel, haptic } = levelHapticStep(atLevelRef.current, tilt.angle);
     atLevelRef.current = atLevel;
     if (haptic) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-  }, [tilt.angle]);
+  }, [tilt.angle, tilt.available]);
 
   const onRefresh = async () => { setRefreshing(true); await refresh(); setRefreshing(false); };
   const usedStorage = m.storage ? m.storage.total - m.storage.free : 0;
@@ -175,12 +179,12 @@ function Monitor() {
     <View style={st.root}>
       <StatusBar barStyle={theme.statusBar} />
       <ScrollView
-        contentContainerStyle={[st.scroll, { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 30 }]}
+        contentContainerStyle={[st.scroll, wide && st.scrollWide, { paddingTop: insets.top + 18, paddingBottom: insets.bottom + 30 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.gold} colors={[theme.gold]} />}
       >
-        <View style={st.header}>
+        <View style={[st.header, compactHeader && st.headerCompact]}>
           <Text style={st.brand}>HILAL</Text>
-          <View style={st.headerRight}>
+          <View style={[st.headerRight, compactHeader && st.headerRightCompact]}>
             <Pressable onPress={toggleTheme} hitSlop={8} style={st.themeBtn}>
               <Text style={st.themeIcon}>{mode === 'dark' ? '☀️' : '🌙'}</Text>
             </Pressable>
@@ -207,7 +211,8 @@ function Monitor() {
           ))}
         </View>
 
-        {view === 'overview' ? <>
+        {view === 'overview' ? <View style={[wide && st.overviewGrid, wide && rtl && st.rev]}>
+        <View style={wide && st.overviewColumn}>
 
         <View style={st.statusCard}>
           <Text style={[st.statusTitle, rtl && st.right]}>{t('healthTitle', lang)}</Text>
@@ -245,9 +250,13 @@ function Monitor() {
             value={`${fmtBytes(usedStorage)} / ${fmtBytes(m.storage.total)}`}
             frac={storageFrac} color={loadColor(storageFrac)} rtl={rtl} st={st} />
         )}
+        </View>
+
+        <View style={wide && st.overviewColumn}>
 
         <View style={st.levelCard}>
-          <Text style={st.levelTitle}>📐 {t('level', lang)}</Text>
+          <Text style={[st.levelTitle, rtl && st.levelTitleRtl]}>📐 {t('level', lang)}</Text>
+          {tilt.available ? <>
           <View style={st.bubbleOuter}>
             <View style={st.bubbleCenter} />
             <View style={[st.bubble, {
@@ -261,6 +270,7 @@ function Monitor() {
           <Text style={[st.levelVal, tilt.angle < LEVEL_IN && { color: theme.gold }]}>
             {tilt.angle < LEVEL_IN ? t('levelOk', lang) : `${Math.round(tilt.angle)}° ${t('tilt', lang)}`}
           </Text>
+          </> : <Text style={[st.levelVal, rtl && st.right]}>{t('levelUnavailable', lang)}</Text>}
         </View>
 
         <View style={[st.alertRow, rtl && st.rev]}>
@@ -270,7 +280,8 @@ function Monitor() {
           </View>
           <Switch value={alertOn} onValueChange={toggleAlert} trackColor={{ true: theme.gold, false: theme.alertTrackOff }} thumbColor="#fff" />
         </View>
-        </> : <>
+        </View>
+        </View> : <>
           <Text style={[st.sectionTitle, rtl && st.right]}>{t('system', lang)}</Text>
           <View style={st.card}>
             <InfoRow label={t('device', lang)} value={m.device.model} rtl={rtl} st={st} />
@@ -307,8 +318,11 @@ function makeStyles(t: Theme) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: t.bg },
     scroll: { padding: 22 },
+    scrollWide: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingHorizontal: 32 },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    headerCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 8 },
     headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    headerRightCompact: { justifyContent: 'space-between', flexWrap: 'wrap' },
     brand: { color: t.gold, fontSize: 32, fontWeight: '800', letterSpacing: 3 },
     themeBtn: { padding: 2 },
     themeIcon: { fontSize: 18 },
@@ -334,6 +348,8 @@ function makeStyles(t: Theme) {
     historyTitle: { color: t.textSecondary, fontSize: 12, fontWeight: '600', marginBottom: 6 },
     right: { textAlign: 'right' },
     rev: { flexDirection: 'row-reverse' },
+    overviewGrid: { flexDirection: 'row', alignItems: 'flex-start', gap: 24 },
+    overviewColumn: { flex: 1, minWidth: 0 },
     metric: { marginBottom: 18 },
     metricHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 },
     metricLabel: { color: t.textLabel, fontSize: 16, fontWeight: '600' },
@@ -352,6 +368,7 @@ function makeStyles(t: Theme) {
     alertSub: { color: t.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 16 },
     levelCard: { marginTop: 18, padding: 18, backgroundColor: t.card, borderRadius: 16, borderWidth: 1, borderColor: t.cardBorder, alignItems: 'center' },
     levelTitle: { color: t.textPrimary, fontSize: 15, fontWeight: '600', alignSelf: 'flex-start', marginBottom: 16 },
+    levelTitleRtl: { alignSelf: 'flex-end', textAlign: 'right' },
     bubbleOuter: { width: 140, height: 140, borderRadius: 70, borderWidth: 1, borderColor: t.cardBorder, backgroundColor: t.track, alignItems: 'center', justifyContent: 'center' },
     bubbleCenter: { position: 'absolute', width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: t.gold, opacity: 0.5 },
     bubble: { width: 26, height: 26, borderRadius: 13 },
