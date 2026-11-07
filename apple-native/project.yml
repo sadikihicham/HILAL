@@ -2,7 +2,6 @@ name: HILALAppleNative
 settings:
   base:
     SWIFT_VERSION: 6.0
-    CODE_SIGNING_ALLOWED: NO
 targets:
   HILALTV:
     type: application
