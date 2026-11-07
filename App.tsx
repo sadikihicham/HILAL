@@ -92,6 +92,7 @@ function Monitor() {
   const [mode, setMode] = useState<Mode>(system === 'light' ? 'light' : 'dark');
   const [view, setView] = useState<ViewId>('overview');
   const [copied, setCopied] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const firedRef = useRef(false);
   const atLevelRef = useRef(true); // true au départ : pas de buzz à l'ouverture
   const tilt = useTilt();
@@ -306,6 +307,20 @@ function Monitor() {
           <Text style={st.shareTxt}>{t(copied ? 'copied' : 'copyStatus', lang)}</Text>
         </Pressable>
 
+        <Pressable onPress={() => setShowPrivacy((shown) => !shown)} style={st.copyBtn}
+          accessibilityRole="button" accessibilityState={{ expanded: showPrivacy }}>
+          <Text style={st.shareTxt}>{t(showPrivacy ? 'privacyHide' : 'privacyShow', lang)}</Text>
+        </Pressable>
+        {showPrivacy && <View style={st.privacyCard}>
+          <Text style={[st.sectionTitle, rtl && st.right]}>{t('privacyTitle', lang)}</Text>
+          {(['privacyData', 'privacyStorage', 'privacyShare', 'privacyRetention', 'privacyContact'] as const).map((section) => (
+            <View key={section} style={st.privacySection}>
+              <Text style={[st.privacyHeading, rtl && st.right]}>{t(`${section}Heading`, lang)}</Text>
+              <Text style={[st.privacyBody, rtl && st.right]}>{t(`${section}Body`, lang)}</Text>
+            </View>
+          ))}
+        </View>}
+
         <Text style={st.footer}>{t('footer', lang)} هلال</Text>
       </ScrollView>
     </View>
@@ -374,6 +389,10 @@ function makeStyles(t: Theme) {
     shareBtn: { marginTop: 22, alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 26, borderRadius: 24, borderWidth: 1, borderColor: t.gold, backgroundColor: t.chipSel },
     copyBtn: { marginTop: 12, alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 26, borderRadius: 24, borderWidth: 1, borderColor: t.cardBorder, backgroundColor: t.card },
     shareTxt: { color: t.gold, fontSize: 15, fontWeight: '700' },
+    privacyCard: { backgroundColor: t.card, borderColor: t.cardBorder, borderWidth: 1, borderRadius: 16, padding: 18, marginTop: 18 },
+    privacySection: { marginTop: 14 },
+    privacyHeading: { color: t.textPrimary, fontSize: 15, fontWeight: '700', marginBottom: 5 },
+    privacyBody: { color: t.textSecondary, fontSize: 13, lineHeight: 20 },
     footer: { color: t.textFooter, fontSize: 11, marginTop: 30, textAlign: 'center', lineHeight: 16 },
   });
 }

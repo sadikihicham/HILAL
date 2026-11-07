@@ -71,6 +71,10 @@ eas build --profile development -p ios           # app installable (icône + cap
 Profils dans `eas.json` ; projet lié via `extra.eas.projectId` (app.json).
 Les mises à jour réseau sont désactivées : chaque nouvelle version doit être
 construite et distribuée via les magasins d'applications, après tests et validation.
+La notice de confidentialité est lisible dans l'application, sans connexion, et
+sa version publique trilingue est préparée dans [`PRIVACY.md`](PRIVACY.md).
+Avant publication, vérifier le comportement réseau du binaire signé et remplacer
+le lien `.docx` de la fiche Google Play par la page Markdown rendue de cette notice.
 
 ## Structure
 
