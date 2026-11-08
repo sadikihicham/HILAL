@@ -119,9 +119,14 @@ function Monitor() {
   async function changeView(next: ViewId) { setView(next); await AsyncStorage.setItem(VIEW_KEY, next); }
 
   async function toggleAlert(v: boolean) {
-    setAlertOn(v);
-    await AsyncStorage.setItem(ALERT_KEY, v ? '1' : '0');
-    if (v) { const ok = await requestNotificationPermission(); if (!ok) { setAlertOn(false); await AsyncStorage.setItem(ALERT_KEY, '0'); } }
+    let enabled = v;
+    if (v) {
+      try { enabled = await requestNotificationPermission(); }
+      catch { enabled = false; }
+      if (enabled) firedRef.current = false;
+    }
+    setAlertOn(enabled);
+    await AsyncStorage.setItem(ALERT_KEY, enabled ? '1' : '0');
   }
 
   useEffect(() => {
@@ -130,8 +135,11 @@ function Monitor() {
     const charging = b.state === Battery.BatteryState.CHARGING || b.state === Battery.BatteryState.FULL;
     const { fired, notify } = lowBatteryStep(firedRef.current, { level: b.level, charging, alertOn });
     firedRef.current = fired;
-    if (notify) notifyLowBattery(b.level);
-  }, [m.battery, alertOn]);
+    if (notify) void notifyLowBattery(b.level, lang).catch(() => {
+      setAlertOn(false);
+      void AsyncStorage.setItem(ALERT_KEY, '0');
+    });
+  }, [m.battery, alertOn, lang]);
 
   // Retour haptique local quand l'appareil se cale « à niveau » (hystérésis).
   useEffect(() => {

@@ -4,7 +4,7 @@
     "slug": "hilal",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/hilal-health-monitor-icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "hilal",
     "updates": {
@@ -13,7 +13,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ae.hilal.hilal"
+      "bundleIdentifier": "ae.hilal.hilal",
+      "buildNumber": "3"
     },
     "android": {
       "package": "ae.hilal.hilal",
@@ -47,8 +48,8 @@
         "me.everything.badger.permission.BADGE_COUNT_WRITE"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#0E1A16",
-        "foregroundImage": "./assets/icon-foreground.png"
+        "backgroundColor": "#071A3A",
+        "foregroundImage": "./assets/hilal-health-monitor-foreground.png"
       },
       "predictiveBackGestureEnabled": false
     },
