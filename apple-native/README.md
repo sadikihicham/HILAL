@@ -29,3 +29,23 @@ xcodebuild -project HILALAppleNative.xcodeproj -scheme HILALVision \
 
 Une recette sur Apple TV et Vision Pro physiques reste nécessaire avant toute
 publication. Aucun identifiant de signature ni secret n’est stocké ici.
+
+## Préparation avant publication
+
+Les deux cibles sont des applications indépendantes : elles ont donc chacune
+leur identifiant, leur fiche App Store Connect, leurs métadonnées et leur cycle
+de version. Avant de créer une archive distribuable, vérifier cette liste :
+
+| Cible | Identifiant | À confirmer avant archive |
+| --- | --- | --- |
+| Apple TV | `com.sadikihicham.hilal.tv` | Fiche tvOS, icônes TV, profil et essai sur Apple TV réelle |
+| Vision Pro | `com.sadikihicham.hilal.vision` | Fiche visionOS, icônes visionOS, profil et essai dans le casque |
+
+Pour chaque cible, le propriétaire doit confirmer dans Apple Developer et App
+Store Connect que l'identifiant est enregistré, que les accords sont actifs,
+que le certificat Distribution et le profil correspondent à la cible, puis
+choisir un numéro de build supérieur au dernier build accepté. La recette
+physique doit notamment vérifier les mesures affichées, Actualiser, la langue
+française et arabe, et l'alerte de stockage sous 10 %. Une archive, un envoi
+TestFlight ou une soumission App Store restent des actions séparées : elles ne
+sont pas réalisées par cette PR.
