@@ -13,7 +13,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "ae.hilal.hilal"
+      "bundleIdentifier": "ae.hilal.hilal",
+      "buildNumber": "3"
     },
     "android": {
       "package": "ae.hilal.hilal",
