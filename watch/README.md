@@ -32,3 +32,13 @@ xcodebuild -project HILALWatch.xcodeproj -scheme HILALWatch \
 Le simulateur ne prouve pas la batterie réelle. Une recette sur Apple Watch physique
 reste nécessaire avant toute publication. Le projet Xcode est généré depuis
 `project.yml`; aucun identifiant de signature ou secret n’est stocké ici.
+
+## Préparation avant publication
+
+La cible porte l’identifiant `com.sadikihicham.hilal.watch`, la version publique
+`1.0` et le build initial `1`. Avant une archive distribuable, créer ou vérifier
+sa fiche App Store Connect, confirmer les accords, le certificat Distribution et
+le profil Watch correspondants, choisir un build supérieur au dernier accepté et
+tester l'alerte sur une Apple Watch réelle. Les builds de simulateur continuent
+d'imposer l'absence de signature dans le workflow CI ; aucune archive, signature,
+soumission TestFlight ou publication n’est effectuée par ce dépôt.
