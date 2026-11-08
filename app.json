@@ -48,8 +48,8 @@
         "me.everything.badger.permission.BADGE_COUNT_WRITE"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#0E1A16",
-        "foregroundImage": "./assets/icon-foreground.png"
+        "backgroundColor": "#071A3A",
+        "foregroundImage": "./assets/hilal-health-monitor-foreground.png"
       },
       "predictiveBackGestureEnabled": false
     },
