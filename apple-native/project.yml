@@ -1,0 +1,33 @@
+name: HILALAppleNative
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+targets:
+  HILALTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: '17.0'
+    sources:
+      - path: Sources
+    info:
+      path: TV/Info.plist
+      properties:
+        CFBundleDisplayName: HILAL
+        CFBundleLocalizations: [en, fr, ar]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sadikihicham.hilal.tv
+  HILALVision:
+    type: application
+    platform: visionOS
+    deploymentTarget: '2.0'
+    sources:
+      - path: Sources
+    info:
+      path: Vision/Info.plist
+      properties:
+        CFBundleDisplayName: HILAL
+        CFBundleLocalizations: [en, fr, ar]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sadikihicham.hilal.vision
