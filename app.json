@@ -4,7 +4,7 @@
     "slug": "hilal",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/hilal-health-monitor-icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "hilal",
     "updates": {
